@@ -1,9 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit';
-import crudReducer from '@/app/store/slices/crudSlice';
+import crudReducer from './slices/crudSlice';
+import authReducer from './slices/authSlice';
 
 export const makeStore = () => {
   return configureStore({
     reducer: {
+      auth: authReducer,
       crud: crudReducer,
     },
   });

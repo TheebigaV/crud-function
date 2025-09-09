@@ -1,13 +1,35 @@
 <?php
 
-use App\Http\Controllers\ItemController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ItemController;
 
+/*
+|--------------------------------------------------------------------------
+| API Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register API routes for your application. These
+| routes are loaded by the RouteServiceProvider and all of them will
+| be assigned to the "api" middleware group. Make something great!
+|
+*/
+
+// Public routes
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
+// Items routes (accessible without authentication for now)
 Route::apiResource('items', ItemController::class);
 
-// Or if you want to define them manually:
-// Route::get('/items', [ItemController::class, 'index']);
-// Route::post('/items', [ItemController::class, 'store']);
-// Route::get('/items/{id}', [ItemController::class, 'show']);
-// Route::put('/items/{id}', [ItemController::class, 'update']);
-// Route::delete('/items/{id}', [ItemController::class, 'destroy']);
+// Protected routes
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/me', [AuthController::class, 'me']);
+
+    // If you want to make items protected, uncomment this and comment the line above
+    // Route::apiResource('items', ItemController::class);
+});

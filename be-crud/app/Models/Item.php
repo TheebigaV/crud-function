@@ -9,13 +9,22 @@ class Item extends Model
 {
     use HasFactory;
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
         'name',
         'description',
+        'user_id',
     ];
 
-    protected $casts = [
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-    ];
+    /**
+     * Get the user that owns the item.
+     */
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }

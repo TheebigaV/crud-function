@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import axios from 'axios';
+import { RootState } from '../store';
 
 // Use environment variable with fallback
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -24,12 +25,23 @@ const initialState: CrudState = {
   currentItem: null,
 };
 
+// Helper function to get auth token
+const getAuthToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('token');
+  }
+  return null;
+};
+
 // Async thunks
 export const fetchItems = createAsyncThunk(
   'crud/fetchItems',
-  async (_, { rejectWithValue }) => {
+  async (_, { rejectWithValue, getState }) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/items`);
+      const token = getAuthToken();
+      const response = await axios.get(`${API_BASE_URL}/api/items`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
@@ -44,7 +56,10 @@ export const createItem = createAsyncThunk(
   'crud/createItem',
   async (itemData: Omit<Item, 'id'>, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/items`, itemData);
+      const token = getAuthToken();
+      const response = await axios.post(`${API_BASE_URL}/api/items`, itemData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
@@ -59,7 +74,10 @@ export const updateItem = createAsyncThunk(
   'crud/updateItem',
   async ({ id, ...itemData }: Item, { rejectWithValue }) => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/api/items/${id}`, itemData);
+      const token = getAuthToken();
+      const response = await axios.put(`${API_BASE_URL}/api/items/${id}`, itemData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
@@ -74,7 +92,10 @@ export const deleteItem = createAsyncThunk(
   'crud/deleteItem',
   async (id: number, { rejectWithValue }) => {
     try {
-      await axios.delete(`${API_BASE_URL}/api/items/${id}`);
+      const token = getAuthToken();
+      await axios.delete(`${API_BASE_URL}/api/items/${id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       return id;
     } catch (error: any) {
       return rejectWithValue(

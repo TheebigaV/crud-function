@@ -1,34 +1,39 @@
 'use client';
 
-import { useState } from 'react';
-import { Provider } from 'react-redux';
-import { makeStore } from './store/store';
-import ItemList from './components/ItemList';
+import AuthStatus from './components/Auth/AuthStatus';
 import ItemForm from './components/ItemForm';
+import ItemList from './components/ItemList';
+import { useAppSelector } from './store/hooks';
 
 export default function Home() {
-  const [showForm, setShowForm] = useState(false);
-  const store = makeStore();
+  const { isAuthenticated } = useAppSelector((state) => state.auth);
 
   return (
-    <Provider store={store}>
-      <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">CRUD Application with Laravel API</h1>
-        
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-semibold">Items Management</h2>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
-          >
-            {showForm ? 'Hide Form' : 'Add New Item'}
-          </button>
+    <div className="min-h-screen bg-gray-100">
+      <header className="bg-blue-600 text-white p-4">
+        <div className="container mx-auto flex justify-between items-center">
+          <h1 className="text-2xl font-bold">CRUD App</h1>
+          <AuthStatus />
         </div>
+      </header>
 
-        {showForm && <ItemForm />}
-        
-        <ItemList />
-      </div>
-    </Provider>
+      <main className="container mx-auto py-8">
+        {isAuthenticated ? (
+          <>
+            <ItemForm />
+            <ItemList />
+          </>
+        ) : (
+          <div className="text-center py-16">
+            <h2 className="text-3xl font-bold text-gray-800 mb-4">
+              Welcome to CRUD App
+            </h2>
+            <p className="text-gray-600 mb-8">
+              Please login or register to manage your items.
+            </p>
+          </div>
+        )}
+      </main>
+    </div>
   );
 }

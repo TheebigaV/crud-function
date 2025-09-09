@@ -1,9 +1,13 @@
 import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
 import './globals.css';
+import StoreProvider from './components/StoreProvider';
+
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'CRUD Application',
-  description: 'Next.js CRUD frontend for Laravel API',
+  title: 'CRUD App',
+  description: 'CRUD app with authentication',
 };
 
 export default function RootLayout({
@@ -13,8 +17,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-gray-100">
-        {children}
+      <body className={inter.className}>
+        <StoreProvider>
+          {children}
+        </StoreProvider>
       </body>
     </html>
   );

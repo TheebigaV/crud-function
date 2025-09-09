@@ -4,122 +4,116 @@ namespace App\Http\Controllers;
 
 use App\Models\Item;
 use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Validator;
 
 class ItemController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Display a listing of items
      */
-    public function index(): JsonResponse
+    public function index(Request $request)
     {
-        try {
-            $items = Item::all();
-            return response()->json($items);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to fetch items: ' . $e->getMessage()
-            ], 500);
+        $query = Item::query();
+
+        // If user is authenticated, show only their items
+        if ($request->user()) {
+            $query->where('user_id', $request->user()->id);
         }
+
+        $items = $query->latest()->get();
+
+        return response()->json($items);
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Store a newly created item
      */
-    public function store(Request $request): JsonResponse
+    public function store(Request $request)
     {
-        try {
-            $validated = $request->validate([
-                'name' => 'required|string|max:255',
-                'description' => 'required|string',
-            ]);
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'description' => 'required|string|max:1000',
+        ]);
 
-            $item = Item::create($validated);
-
-            return response()->json($item, 201);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        if ($validator->fails()) {
             return response()->json([
                 'message' => 'Validation failed',
-                'errors' => $e->errors()
+                'errors' => $validator->errors()
             ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to create item: ' . $e->getMessage()
-            ], 500);
         }
+
+        $item = Item::create([
+            'name' => $request->name,
+            'description' => $request->description,
+            'user_id' => $request->user() ? $request->user()->id : null,
+        ]);
+
+        return response()->json($item, 201);
     }
 
     /**
-     * Display the specified resource.
+     * Display the specified item
      */
-    public function show(string $id): JsonResponse
+    public function show(Request $request, Item $item)
     {
-        try {
-            $item = Item::findOrFail($id);
-            return response()->json($item);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+        // Check if user owns the item (if authenticated)
+        if ($request->user() && $item->user_id !== $request->user()->id) {
             return response()->json([
-                'message' => 'Item not found'
-            ], 404);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to fetch item: ' . $e->getMessage()
-            ], 500);
+                'message' => 'Unauthorized'
+            ], 403);
         }
+
+        return response()->json($item);
     }
 
     /**
-     * Update the specified resource in storage.
+     * Update the specified item
      */
-    public function update(Request $request, string $id): JsonResponse
+    public function update(Request $request, Item $item)
     {
-        try {
-            $item = Item::findOrFail($id);
+        // Check if user owns the item (if authenticated)
+        if ($request->user() && $item->user_id !== $request->user()->id) {
+            return response()->json([
+                'message' => 'Unauthorized'
+            ], 403);
+        }
 
-            $validated = $request->validate([
-                'name' => 'sometimes|required|string|max:255',
-                'description' => 'sometimes|required|string',
-            ]);
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'description' => 'required|string|max:1000',
+        ]);
 
-            $item->update($validated);
-
-            return response()->json($item);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        if ($validator->fails()) {
             return response()->json([
                 'message' => 'Validation failed',
-                'errors' => $e->errors()
+                'errors' => $validator->errors()
             ], 422);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Item not found'
-            ], 404);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to update item: ' . $e->getMessage()
-            ], 500);
         }
+
+        $item->update([
+            'name' => $request->name,
+            'description' => $request->description,
+        ]);
+
+        return response()->json($item);
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Remove the specified item
      */
-    public function destroy(string $id): JsonResponse
+    public function destroy(Request $request, Item $item)
     {
-        try {
-            $item = Item::findOrFail($id);
-            $item->delete();
-
+        // Check if user owns the item (if authenticated)
+        if ($request->user() && $item->user_id !== $request->user()->id) {
             return response()->json([
-                'message' => 'Item deleted successfully'
-            ]);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Item not found'
-            ], 404);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to delete item: ' . $e->getMessage()
-            ], 500);
+                'message' => 'Unauthorized'
+            ], 403);
         }
+
+        $item->delete();
+
+        return response()->json([
+            'message' => 'Item deleted successfully'
+        ]);
     }
 }
