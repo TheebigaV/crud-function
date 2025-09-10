@@ -1,51 +1,57 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use App\Models\Item;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
+use App\Http\Requests\StoreItemRequest;
+use App\Http\Requests\UpdateItemRequest;
 
 class ItemController extends Controller
 {
     /**
-     * Display a listing of items
+     * Display a listing of items with pagination
      */
     public function index(Request $request)
     {
         $query = Item::query();
 
-        // If user is authenticated, show only their items
-        if ($request->user()) {
-            $query->where('user_id', $request->user()->id);
-        }
+        // Show only authenticated user's items
+        $query->where('user_id', $request->user()->id);
 
-        $items = $query->latest()->get();
+        // Get pagination parameters from request
+        $perPage = $request->get('per_page', 15); // Default 15 items per page
+        $perPage = min($perPage, 100); // Maximum 100 items per page
 
-        return response()->json($items);
+        // Apply pagination with latest items first
+        $items = $query->latest()->paginate($perPage);
+
+        return response()->json([
+            'data' => $items->items(),
+            'current_page' => $items->currentPage(),
+            'per_page' => $items->perPage(),
+            'total' => $items->total(),
+            'last_page' => $items->lastPage(),
+            'from' => $items->firstItem(),
+            'to' => $items->lastItem(),
+            'has_more_pages' => $items->hasMorePages(),
+            'links' => [
+                'first' => $items->url(1),
+                'last' => $items->url($items->lastPage()),
+                'prev' => $items->previousPageUrl(),
+                'next' => $items->nextPageUrl(),
+            ]
+        ]);
     }
 
     /**
      * Store a newly created item
      */
-    public function store(Request $request)
+    public function store(StoreItemRequest $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'description' => 'required|string|max:1000',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
         $item = Item::create([
             'name' => $request->name,
             'description' => $request->description,
-            'user_id' => $request->user() ? $request->user()->id : null,
+            'user_id' => $request->user()->id,
         ]);
 
         return response()->json($item, 201);
@@ -56,8 +62,8 @@ class ItemController extends Controller
      */
     public function show(Request $request, Item $item)
     {
-        // Check if user owns the item (if authenticated)
-        if ($request->user() && $item->user_id !== $request->user()->id) {
+        // Check if user owns the item
+        if ($item->user_id !== $request->user()->id) {
             return response()->json([
                 'message' => 'Unauthorized'
             ], 403);
@@ -69,26 +75,10 @@ class ItemController extends Controller
     /**
      * Update the specified item
      */
-    public function update(Request $request, Item $item)
+    public function update(UpdateItemRequest $request, Item $item)
     {
-        // Check if user owns the item (if authenticated)
-        if ($request->user() && $item->user_id !== $request->user()->id) {
-            return response()->json([
-                'message' => 'Unauthorized'
-            ], 403);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'description' => 'required|string|max:1000',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
+        // Authorization is handled in UpdateItemRequest
+        // Validation is handled in UpdateItemRequest
 
         $item->update([
             'name' => $request->name,
@@ -103,8 +93,8 @@ class ItemController extends Controller
      */
     public function destroy(Request $request, Item $item)
     {
-        // Check if user owns the item (if authenticated)
-        if ($request->user() && $item->user_id !== $request->user()->id) {
+        // Check if user owns the item
+        if ($item->user_id !== $request->user()->id) {
             return response()->json([
                 'message' => 'Unauthorized'
             ], 403);

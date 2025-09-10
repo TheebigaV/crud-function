@@ -16,20 +16,41 @@ const AuthStatus = () => {
     <div className="flex items-center space-x-4">
       {isAuthenticated ? (
         <>
-          <span>Welcome, {user?.name}</span>
+          <div className="flex items-center space-x-2">
+            {user?.avatar && (
+              <img 
+                src={user.avatar} 
+                alt="Profile" 
+                className="w-8 h-8 rounded-full border-2 border-white shadow-sm" 
+              />
+            )}
+            <span className="text-white">Welcome, {user?.name}</span>
+          </div>
+          <Link 
+            href="/profile" 
+            className="text-white hover:text-blue-200 transition-colors duration-200"
+          >
+            Profile
+          </Link>
           <button
             onClick={handleLogout}
-            className="bg-white text-blue-600 px-4 py-2 rounded hover:bg-gray-100"
+            className="bg-white text-blue-600 px-4 py-2 rounded hover:bg-gray-100 transition-colors duration-200 font-medium"
           >
             Logout
           </button>
         </>
       ) : (
         <>
-          <Link href="/login" className="hover:underline">
+          <Link 
+            href="/login" 
+            className="text-white hover:text-blue-200 transition-colors duration-200"
+          >
             Login
           </Link>
-          <Link href="/register" className="hover:underline">
+          <Link 
+            href="/register" 
+            className="text-white hover:text-blue-200 transition-colors duration-200"
+          >
             Register
           </Link>
         </>

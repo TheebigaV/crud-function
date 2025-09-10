@@ -4,17 +4,20 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { login, clearError, clearMessage } from '../../store/slices/authSlice';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import SocialLogin from './SocialLogin';
 
 const LoginForm = () => {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { loading, error, isAuthenticated } = useAppSelector((state) => state.auth);
   
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
+  const [socialError, setSocialError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -25,7 +28,13 @@ const LoginForm = () => {
   useEffect(() => {
     dispatch(clearError());
     dispatch(clearMessage());
-  }, [dispatch]);
+    
+    // Check for social auth errors
+    const errorParam = searchParams.get('error');
+    if (errorParam) {
+      setSocialError(decodeURIComponent(errorParam));
+    }
+  }, [dispatch, searchParams]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -35,6 +44,9 @@ const LoginForm = () => {
     
     if (error) {
       dispatch(clearError());
+    }
+    if (socialError) {
+      setSocialError(null);
     }
   };
 
@@ -57,10 +69,14 @@ const LoginForm = () => {
             </Link>
           </p>
         </div>
+
+        {/* Social Auth Buttons */}
+        <SocialLogin />
+
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
+          {(error || socialError) && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-              {error}
+              {error || socialError}
             </div>
           )}
           

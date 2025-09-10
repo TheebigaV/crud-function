@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use App\Notifications\ResetPasswordNotification;
 
 class User extends Authenticatable
 {
@@ -21,6 +21,10 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'provider',
+        'provider_id',
+        'avatar',
+        'email_verified_at',
     ];
 
     /**
@@ -31,6 +35,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'provider_id', // Hide provider_id for security
     ];
 
     /**
@@ -44,21 +49,31 @@ class User extends Authenticatable
     ];
 
     /**
-     * Get the items for the user.
+     * Check if user has a linked social account.
      */
-    public function items()
+    public function hasLinkedSocialAccount(): bool
     {
-        return $this->hasMany(Item::class);
+        return !is_null($this->provider) && !is_null($this->provider_id);
     }
 
     /**
-     * Send the password reset notification.
-     *
-     * @param  string  $token
-     * @return void
+     * Check if user can unlink social account.
      */
-    public function sendPasswordResetNotification($token)
+    public function canUnlinkSocialAccount(): bool
     {
-        $this->notify(new ResetPasswordNotification($token));
+        return $this->hasLinkedSocialAccount() && !is_null($this->password);
+    }
+
+    /**
+     * Get the avatar URL with fallback.
+     */
+    public function getAvatarUrlAttribute(): string
+    {
+        if ($this->avatar) {
+            return $this->avatar;
+        }
+
+        // Fallback to Gravatar
+        return 'https://www.gravatar.com/avatar/' . md5(strtolower(trim($this->email))) . '?d=mp&s=80';
     }
 }
