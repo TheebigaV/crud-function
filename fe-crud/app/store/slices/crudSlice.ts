@@ -1,9 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import axios from 'axios';
-import { RootState } from '../store';
-
-// Use environment variable with fallback
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { api } from '../../utils/api';
 
 export interface Item {
   id?: number;
@@ -43,58 +39,6 @@ const initialState: CrudState = {
   error: null,
   currentItem: null,
 };
-
-// Helper function to get auth token
-const getAuthToken = () => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('token');
-  }
-  return null;
-};
-
-// Create axios instance with interceptors
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-// Request interceptor to add auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = getAuthToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-// Response interceptor for better error handling
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.code === 'ERR_NETWORK') {
-      return Promise.reject(new Error(`Network Error: Cannot connect to ${API_BASE_URL}. Please ensure your Laravel server is running.`));
-    }
-    
-    if (error.response?.status === 401) {
-      // Clear token if unauthorized
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
-      return Promise.reject(new Error('Unauthorized. Please login again.'));
-    }
-    
-    return Promise.reject(error);
-  }
-);
 
 // Async thunks
 export const fetchItems = createAsyncThunk(
@@ -178,6 +122,14 @@ const crudSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    // Add reducer to reset CRUD state on logout
+    resetCrudState: (state) => {
+      state.items = [];
+      state.pagination = null;
+      state.currentItem = null;
+      state.error = null;
+      state.loading = false;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -255,5 +207,5 @@ const crudSlice = createSlice({
   },
 });
 
-export const { setCurrentItem, clearCurrentItem, clearError } = crudSlice.actions;
+export const { setCurrentItem, clearCurrentItem, clearError, resetCrudState } = crudSlice.actions;
 export default crudSlice.reducer;

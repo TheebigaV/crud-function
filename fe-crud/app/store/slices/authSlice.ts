@@ -1,7 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import axios from 'axios';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { api, getAuthToken } from '../../utils/api';
 
 interface User {
   id: number;
@@ -20,40 +18,6 @@ interface AuthState {
   error: string | null;
   message: string | null;
 }
-
-// Create axios instance with better configuration
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-  timeout: 10000, // 10 second timeout
-});
-
-// Response interceptor for better error handling
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.code === 'ERR_NETWORK') {
-      return Promise.reject(new Error(`Network Error: Cannot connect to ${API_BASE_URL}. Please ensure your Laravel server is running and CORS is configured.`));
-    }
-    
-    if (error.code === 'ECONNABORTED') {
-      return Promise.reject(new Error('Request timeout. Please check your connection and try again.'));
-    }
-    
-    return Promise.reject(error);
-  }
-);
-
-// Helper function to get auth token
-const getAuthToken = () => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('token');
-  }
-  return null;
-};
 
 // Get initial state from localStorage if available
 const getInitialState = (): AuthState => {
@@ -83,6 +47,22 @@ const getInitialState = (): AuthState => {
 
 const initialState: AuthState = getInitialState();
 
+// Clear local storage helper
+const clearLocalStorage = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  }
+};
+
+// Store data in local storage helper
+const storeAuthData = (token: string, user: User) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(user));
+  }
+};
+
 // Async thunks
 export const login = createAsyncThunk(
   'auth/login',
@@ -91,10 +71,7 @@ export const login = createAsyncThunk(
       const response = await api.post('/api/login', credentials);
       
       // Store token and user in localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-      }
+      storeAuthData(response.data.token, response.data.user);
       
       return response.data;
     } catch (error: any) {
@@ -112,15 +89,11 @@ export const register = createAsyncThunk(
   async (userData: { name: string; email: string; password: string; password_confirmation: string }, { rejectWithValue }) => {
     try {
       console.log('Attempting to register with:', { ...userData, password: '[HIDDEN]', password_confirmation: '[HIDDEN]' });
-      console.log('API URL:', `${API_BASE_URL}/api/register`);
       
       const response = await api.post('/api/register', userData);
       
       // Store token and user in localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-      }
+      storeAuthData(response.data.token, response.data.user);
       
       return response.data;
     } catch (error: any) {
@@ -149,26 +122,25 @@ export const logout = createAsyncThunk(
       const token = state.auth.token;
       
       if (token) {
-        await api.post('/api/logout', {}, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        try {
+          await api.post('/api/logout', {}, {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          });
+        } catch (error) {
+          // If logout API call fails, we still want to clear local storage
+          console.warn('Logout API call failed, but continuing with local logout:', error);
+        }
       }
       
-      // Remove token and user from localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
+      // Always clear localStorage regardless of API response
+      clearLocalStorage();
       
       return;
     } catch (error: any) {
       // Even if the API call fails, we still want to clear local storage
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
+      clearLocalStorage();
       
       return rejectWithValue(
         error.message || 
@@ -244,10 +216,7 @@ export const handleSocialCallback = createAsyncThunk(
       });
       
       // Store token and user in localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-      }
+      storeAuthData(response.data.token, response.data.user);
       
       return response.data;
     } catch (error: any) {
@@ -332,6 +301,16 @@ const authSlice = createSlice({
     clearMessage: (state) => {
       state.message = null;
     },
+    // Add a manual logout action for immediate cleanup
+    forceLogout: (state) => {
+      state.user = null;
+      state.token = null;
+      state.isAuthenticated = false;
+      state.error = null;
+      state.message = null;
+      state.loading = false;
+      clearLocalStorage();
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -353,6 +332,7 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.user = null;
         state.token = null;
+        clearLocalStorage();
       })
       // Register
       .addCase(register.pending, (state) => {
@@ -372,6 +352,7 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.user = null;
         state.token = null;
+        clearLocalStorage();
       })
       // Logout
       .addCase(logout.pending, (state) => {
@@ -383,6 +364,7 @@ const authSlice = createSlice({
         state.token = null;
         state.isAuthenticated = false;
         state.error = null;
+        state.message = null;
       })
       .addCase(logout.rejected, (state, action) => {
         state.loading = false;
@@ -454,6 +436,7 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.user = null;
         state.token = null;
+        clearLocalStorage();
       })
       // Link Social Account
       .addCase(linkSocialAccount.pending, (state) => {
@@ -488,5 +471,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError, clearMessage } = authSlice.actions;
+export const { clearError, clearMessage, forceLogout } = authSlice.actions;
 export default authSlice.reducer;
