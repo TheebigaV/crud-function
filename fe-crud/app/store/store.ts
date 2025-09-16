@@ -1,20 +1,22 @@
 import { configureStore } from '@reduxjs/toolkit';
+import authReducer from './slices/authSlice';
 import crudReducer from './slices/crudSlice';
-import authReducer, { logout } from './slices/authSlice';
-import { setupAxiosInterceptors } from '../utils/api';
+import paymentReducer from './slices/paymentSlice';
 
 export const makeStore = () => {
-  const store = configureStore({
+  return configureStore({
     reducer: {
       auth: authReducer,
       crud: crudReducer,
+      payment: paymentReducer,
     },
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware({
+        serializableCheck: {
+          ignoredActions: ['persist/PERSIST'],
+        },
+      }),
   });
-
-  // Setup axios interceptors with store reference
-  setupAxiosInterceptors(store);
-
-  return store;
 };
 
 export type AppStore = ReturnType<typeof makeStore>;

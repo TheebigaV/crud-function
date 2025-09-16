@@ -3,8 +3,9 @@
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { logout } from '../../store/slices/authSlice';
 import Link from 'next/link';
+import React from 'react';
 
-const AuthStatus = () => {
+const AuthStatus: React.FC = () => {
   const dispatch = useAppDispatch();
   const { isAuthenticated, user } = useAppSelector((state) => state.auth);
 

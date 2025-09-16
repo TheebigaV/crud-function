@@ -2,21 +2,16 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'name',
         'email',
@@ -27,53 +22,61 @@ class User extends Authenticatable
         'email_verified_at',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
-        'provider_id', // Hide provider_id for security
+        'provider_id',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
 
     /**
-     * Check if user has a linked social account.
+     * Get the items for the user.
      */
-    public function hasLinkedSocialAccount(): bool
+    public function items(): HasMany
     {
-        return !is_null($this->provider) && !is_null($this->provider_id);
+        return $this->hasMany(Item::class);
     }
 
     /**
-     * Check if user can unlink social account.
+     * Get the payments for the user.
      */
-    public function canUnlinkSocialAccount(): bool
+    public function payments(): HasMany
     {
-        return $this->hasLinkedSocialAccount() && !is_null($this->password);
+        return $this->hasMany(Payment::class);
     }
 
     /**
-     * Get the avatar URL with fallback.
+     * Check if user has a social provider linked
      */
-    public function getAvatarUrlAttribute(): string
+    public function hasSocialProvider(): bool
     {
-        if ($this->avatar) {
-            return $this->avatar;
+        return !is_null($this->provider);
+    }
+
+    /**
+     * Get the user's initials for avatar fallback
+     */
+    public function getInitialsAttribute(): string
+    {
+        $names = explode(' ', $this->name);
+        $initials = '';
+
+        foreach ($names as $name) {
+            $initials .= strtoupper(substr($name, 0, 1));
         }
 
-        // Fallback to Gravatar
-        return 'https://www.gravatar.com/avatar/' . md5(strtolower(trim($this->email))) . '?d=mp&s=80';
+        return $initials;
+    }
+
+    /**
+     * Get the user's display avatar (social avatar or default)
+     */
+    public function getDisplayAvatarAttribute(): ?string
+    {
+        return $this->avatar ?: null;
     }
 }

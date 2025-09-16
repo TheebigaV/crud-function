@@ -16,9 +16,16 @@ return new class extends Migration
             $table->string('name');
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
+            $table->string('password')->nullable(); // Nullable for social auth users
+            $table->string('provider')->nullable(); // google, facebook, github
+            $table->string('provider_id')->nullable();
+            $table->string('avatar')->nullable();
             $table->rememberToken();
             $table->timestamps();
+
+            // Indexes for performance
+            $table->index(['provider', 'provider_id']);
+            $table->index('email');
         });
     }
 

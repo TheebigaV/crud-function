@@ -6,8 +6,8 @@ import StoreProvider from './components/StoreProvider';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'CRUD App',
-  description: 'CRUD app with authentication',
+  title: 'Dashboard App - Manage Items & Payments',
+  description: 'A powerful dashboard to manage your items and process payments securely.',
 };
 
 export default function RootLayout({
@@ -19,7 +19,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <StoreProvider>
-          {children}
+          <div className="min-h-screen bg-gray-50">
+            <main>
+              {children}
+            </main>
+          </div>
         </StoreProvider>
       </body>
     </html>

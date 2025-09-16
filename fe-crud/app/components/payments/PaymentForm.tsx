@@ -1,0 +1,427 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  CardElement,
+  useStripe,
+  useElements
+} from '@stripe/react-stripe-js';
+import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import {
+  createPaymentIntent,
+  confirmPayment,
+  clearError,
+  clearPaymentIntent
+} from '../../store/slices/paymentSlice';
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
+const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => void }) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const dispatch = useAppDispatch();
+  const { paymentIntent, loading, error } = useAppSelector((state) => state.payment);
+  
+  const [formData, setFormData] = useState({
+    amount: '',
+    currency: 'usd',
+    description: '',
+  });
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [succeeded, setSucceeded] = useState(false);
+  const [cardComplete, setCardComplete] = useState(false);
+
+  useEffect(() => {
+    // Debug Stripe loading
+    console.log('Stripe object:', stripe);
+    console.log('Elements object:', elements);
+    console.log('Stripe publishable key:', process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+    
+    return () => {
+      dispatch(clearPaymentIntent());
+    };
+  }, [dispatch, stripe, elements]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+    
+    if (error) {
+      dispatch(clearError());
+    }
+  };
+
+  const handleCardChange = (event: any) => {
+    console.log('Card change event:', event);
+    setCardError(event.error ? event.error.message : null);
+    setCardComplete(event.complete);
+  };
+
+  const handleCreatePaymentIntent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      setCardError('Please enter a valid amount');
+      return;
+    }
+
+    const amount = Math.round(parseFloat(formData.amount) * 100);
+    
+    try {
+      await dispatch(createPaymentIntent({
+        amount,
+        currency: formData.currency,
+        description: formData.description || undefined,
+      })).unwrap();
+    } catch (error) {
+      console.error('Failed to create payment intent:', error);
+    }
+  };
+
+  const handleSubmitPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!stripe || !elements || !paymentIntent) {
+      console.log('Missing:', { stripe: !!stripe, elements: !!elements, paymentIntent: !!paymentIntent });
+      return;
+    }
+
+    setProcessing(true);
+    setCardError(null);
+
+    const cardElement = elements.getElement(CardElement);
+    console.log('Card element:', cardElement);
+
+    if (!cardElement) {
+      setCardError('Card element not found');
+      setProcessing(false);
+      return;
+    }
+
+    const { error: stripeError, paymentIntent: confirmedPaymentIntent } = await stripe.confirmCardPayment(
+      paymentIntent.client_secret,
+      {
+        payment_method: {
+          card: cardElement,
+        },
+      }
+    );
+
+    if (stripeError) {
+      setCardError(stripeError.message || 'An error occurred');
+      setProcessing(false);
+    } else if (confirmedPaymentIntent?.status === 'succeeded') {
+      try {
+        await dispatch(confirmPayment(confirmedPaymentIntent.id)).unwrap();
+        setSucceeded(true);
+        setFormData({ amount: '', currency: 'usd', description: '' });
+        setTimeout(() => {
+          setSucceeded(false);
+          dispatch(clearPaymentIntent());
+          // Call the success callback to redirect back to items tab
+          if (onPaymentSuccess) {
+            onPaymentSuccess();
+          }
+        }, 3000);
+      } catch (error) {
+        setCardError('Payment succeeded but failed to update our records');
+      }
+    }
+
+    setProcessing(false);
+  };
+
+  const cardElementOptions = {
+    style: {
+      base: {
+        fontSize: '16px',
+        color: '#374151',
+        fontFamily: '"Inter", "system-ui", "sans-serif"',
+        fontWeight: '400',
+        lineHeight: '24px',
+        '::placeholder': {
+          color: '#9CA3AF',
+        },
+        iconColor: '#6B7280',
+      },
+      invalid: {
+        color: '#EF4444',
+        iconColor: '#EF4444',
+      },
+      complete: {
+        color: '#059669',
+        iconColor: '#059669',
+      },
+    },
+    hidePostalCode: false,
+  };
+
+  if (succeeded) {
+    return (
+      <div className="max-w-md mx-auto bg-white shadow-xl rounded-2xl p-8">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-green-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+            <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 mb-2">Payment Successful!</h3>
+          <p className="text-gray-600 mb-6">Your payment has been processed successfully.</p>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <p className="text-green-800 font-medium">
+              Amount: ${(paymentIntent.amount / 100).toFixed(2)} {paymentIntent.currency.toUpperCase()}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-md mx-auto bg-white shadow-xl rounded-2xl p-8">
+      <div className="text-center mb-8">
+        <div className="w-16 h-16 bg-blue-100 rounded-full mx-auto mb-4 flex items-center justify-center">
+          <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Secure Payment</h2>
+        <p className="text-gray-600 mt-2">Your payment information is encrypted and secure</p>
+      </div>
+      
+      {(error || cardError) && (
+        <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700">{error || cardError}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!paymentIntent ? (
+        <form onSubmit={handleCreatePaymentIntent} className="space-y-6">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Amount *
+            </label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
+              <input
+                type="number"
+                name="amount"
+                step="0.01"
+                min="0.50"
+                value={formData.amount}
+                onChange={handleChange}
+                className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 placeholder-gray-400"
+                placeholder="Enter amount"
+                required
+                autoComplete="off"
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Minimum amount: $0.50</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Currency
+            </label>
+            <select
+              name="currency"
+              value={formData.currency}
+              onChange={handleChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 bg-white"
+              disabled={loading}
+            >
+              <option value="usd">USD - US Dollar</option>
+              <option value="eur">EUR - Euro</option>
+              <option value="gbp">GBP - British Pound</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Description (Optional)
+            </label>
+            <textarea
+              name="description"
+              value={formData.description}
+              onChange={handleChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors resize-none text-gray-900 placeholder-gray-400 bg-white"
+              rows={3}
+              placeholder="What is this payment for?"
+              disabled={loading}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={loading}
+          >
+            {loading ? (
+              <div className="flex items-center justify-center">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                Creating Payment...
+              </div>
+            ) : (
+              'Continue to Payment'
+            )}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={handleSubmitPayment} className="space-y-6">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-100">
+            <h3 className="font-semibold text-gray-900 mb-3 flex items-center">
+              <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Payment Summary
+            </h3>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Amount:</span>
+                <span className="font-semibold text-gray-900">
+                  ${(paymentIntent.amount / 100).toFixed(2)} {paymentIntent.currency.toUpperCase()}
+                </span>
+              </div>
+              {formData.description && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Description:</span>
+                  <span className="text-gray-900">{formData.description}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-3">
+              Card Information *
+            </label>
+            {!stripe || !elements ? (
+              <div className="border-2 border-gray-300 rounded-lg p-4 bg-gray-50 min-h-[50px] flex items-center justify-center">
+                <p className="text-gray-500">Loading payment form...</p>
+              </div>
+            ) : (
+              <div className="relative">
+                <div className="border-2 border-gray-300 rounded-lg p-4 bg-white min-h-[50px] transition-colors focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+                  <CardElement
+                    options={cardElementOptions}
+                    onChange={handleCardChange}
+                    onReady={() => console.log('CardElement ready - you can now type!')}
+                    onFocus={() => console.log('CardElement focused')}
+                    onBlur={() => console.log('CardElement blurred')}
+                  />
+                </div>
+                {cardComplete && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-gray-500 mt-2 flex items-center">
+              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Your payment information is encrypted and secure
+            </p>
+            {!stripe && (
+              <p className="text-xs text-red-500 mt-1">
+                ⚠️ Stripe not loaded. Check console for errors.
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              type="button"
+              onClick={() => dispatch(clearPaymentIntent())}
+              className="px-6 py-3 border-2 border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              disabled={processing}
+            >
+              Back
+            </button>
+            <button
+              type="submit"
+              className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!stripe || processing || !cardComplete}
+            >
+              {processing ? (
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Processing...
+                </div>
+              ) : (
+                `Pay $${(paymentIntent.amount / 100).toFixed(2)}`
+              )}
+            </button>
+          </div>
+
+          <div className="pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-center space-x-4 text-xs text-gray-500">
+              <div className="flex items-center">
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                SSL Encrypted
+              </div>
+              <div className="flex items-center">
+                <span className="font-semibold">Stripe</span>
+              </div>
+              <div className="flex items-center">
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+                PCI Compliant
+              </div>
+            </div>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+};
+
+const PaymentForm = () => {
+  if (!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+    return (
+      <div className="max-w-md mx-auto bg-white shadow-xl rounded-2xl p-8">
+        <div className="bg-red-50 border-l-4 border-red-400 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h4 className="text-sm font-medium text-red-800">Stripe Configuration Error</h4>
+              <p className="text-sm text-red-700">Stripe publishable key not found. Please check your .env.local file.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Elements stripe={stripePromise}>
+      <PaymentFormContent />
+    </Elements>
+  );
+};
+
+export default PaymentForm;

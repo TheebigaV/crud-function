@@ -3,12 +3,11 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppSelector } from '../store/hooks';
-import ProfileSettings from '../components/Profile/ProfileSettings';
-import AuthStatus from '../components/Auth/AuthStatus';
+import ProfileSettings from '@/app/components/Profile/ProfileSettings';
 
-const ProfilePage = () => {
-  const { isAuthenticated, loading } = useAppSelector((state) => state.auth);
+export default function ProfilePage() {
   const router = useRouter();
+  const { isAuthenticated, loading } = useAppSelector((state) => state.auth);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -18,33 +17,37 @@ const ProfilePage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading profile...</p>
         </div>
       </div>
     );
   }
 
   if (!isAuthenticated) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Redirecting to login...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-blue-600 text-white p-4">
-        <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-xl font-bold">CRUD App</h1>
-          <AuthStatus />
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Profile Settings</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Manage your account information and connected social accounts
+          </p>
         </div>
-      </nav>
-
-      <div className="container mx-auto py-8 px-4">
         <ProfileSettings />
       </div>
     </div>
   );
-};
-
-export default ProfilePage;
+}

@@ -1,109 +1,250 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use App\Models\Item;
 use Illuminate\Http\Request;
-use App\Http\Requests\StoreItemRequest;
-use App\Http\Requests\UpdateItemRequest;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use App\Models\Item;
 
 class ItemController extends Controller
 {
-    /**
-     * Display a listing of items with pagination
-     */
-    public function index(Request $request)
+    public function __construct()
     {
-        $query = Item::query();
-
-        // Show only authenticated user's items
-        $query->where('user_id', $request->user()->id);
-
-        // Get pagination parameters from request
-        $perPage = $request->get('per_page', 15); // Default 15 items per page
-        $perPage = min($perPage, 100); // Maximum 100 items per page
-
-        // Apply pagination with latest items first
-        $items = $query->latest()->paginate($perPage);
-
-        return response()->json([
-            'data' => $items->items(),
-            'current_page' => $items->currentPage(),
-            'per_page' => $items->perPage(),
-            'total' => $items->total(),
-            'last_page' => $items->lastPage(),
-            'from' => $items->firstItem(),
-            'to' => $items->lastItem(),
-            'has_more_pages' => $items->hasMorePages(),
-            'links' => [
-                'first' => $items->url(1),
-                'last' => $items->url($items->lastPage()),
-                'prev' => $items->previousPageUrl(),
-                'next' => $items->nextPageUrl(),
-            ]
-        ]);
+        $this->middleware('auth:sanctum');
     }
 
     /**
-     * Store a newly created item
+     * Display a listing of the resource.
      */
-    public function store(StoreItemRequest $request)
+    public function index(Request $request): JsonResponse
     {
-        $item = Item::create([
-            'name' => $request->name,
-            'description' => $request->description,
-            'user_id' => $request->user()->id,
-        ]);
+        try {
+            $perPage = $request->get('per_page', 15);
+            $perPage = min($perPage, 100); // Limit max per page
 
-        return response()->json($item, 201);
-    }
+            $user = $request->user();
 
-    /**
-     * Display the specified item
-     */
-    public function show(Request $request, Item $item)
-    {
-        // Check if user owns the item
-        if ($item->user_id !== $request->user()->id) {
+            Log::info('Fetching items for user', [
+                'user_id' => $user->id,
+                'per_page' => $perPage
+            ]);
+
+            $items = $user->items()->orderBy('created_at', 'desc')->paginate($perPage);
+
+            return response()->json($items);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch items', [
+                'user_id' => $request->user()->id ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
-                'message' => 'Unauthorized'
-            ], 403);
+                'message' => 'Failed to fetch items',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
         }
-
-        return response()->json($item);
     }
 
     /**
-     * Update the specified item
+     * Store a newly created resource in storage.
      */
-    public function update(UpdateItemRequest $request, Item $item)
+    public function store(Request $request): JsonResponse
     {
-        // Authorization is handled in UpdateItemRequest
-        // Validation is handled in UpdateItemRequest
+        try {
+            Log::info('Creating item', [
+                'user_id' => $request->user()->id ?? null,
+                'request_data' => $request->all()
+            ]);
 
-        $item->update([
-            'name' => $request->name,
-            'description' => $request->description,
-        ]);
+            // Validate input
+            $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'description' => 'required|string|max:1000',
+            ]);
 
-        return response()->json($item);
-    }
+            if ($validator->fails()) {
+                Log::warning('Item creation validation failed', [
+                    'errors' => $validator->errors(),
+                    'request_data' => $request->all()
+                ]);
 
-    /**
-     * Remove the specified item
-     */
-    public function destroy(Request $request, Item $item)
-    {
-        // Check if user owns the item
-        if ($item->user_id !== $request->user()->id) {
+                return response()->json([
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $user = $request->user();
+
+            // Create the item
+            $item = $user->items()->create([
+                'name' => $request->name,
+                'description' => $request->description,
+            ]);
+
+            Log::info('Item created successfully', [
+                'user_id' => $user->id,
+                'item_id' => $item->id,
+                'item_name' => $item->name
+            ]);
+
             return response()->json([
-                'message' => 'Unauthorized'
-            ], 403);
+                'message' => 'Item created successfully',
+                'data' => $item
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create item', [
+                'user_id' => $request->user()->id ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to create item',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
         }
+    }
 
-        $item->delete();
+    /**
+     * Display the specified resource.
+     */
+    public function show(Request $request, Item $item): JsonResponse
+    {
+        try {
+            $user = $request->user();
 
-        return response()->json([
-            'message' => 'Item deleted successfully'
-        ]);
+            // Check if user owns this item
+            if ($item->user_id !== $user->id) {
+                return response()->json([
+                    'message' => 'Item not found'
+                ], 404);
+            }
+
+            return response()->json([
+                'message' => 'Item retrieved successfully',
+                'data' => $item
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch item', [
+                'user_id' => $request->user()->id ?? null,
+                'item_id' => $item->id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to fetch item',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
+    public function update(Request $request, Item $item): JsonResponse
+    {
+        try {
+            $user = $request->user();
+
+            // Check if user owns this item
+            if ($item->user_id !== $user->id) {
+                return response()->json([
+                    'message' => 'Item not found'
+                ], 404);
+            }
+
+            // Validate input
+            $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'description' => 'required|string|max:1000',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Update the item
+            $item->update([
+                'name' => $request->name,
+                'description' => $request->description,
+            ]);
+
+            Log::info('Item updated successfully', [
+                'user_id' => $user->id,
+                'item_id' => $item->id,
+                'item_name' => $item->name
+            ]);
+
+            return response()->json([
+                'message' => 'Item updated successfully',
+                'data' => $item
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to update item', [
+                'user_id' => $request->user()->id ?? null,
+                'item_id' => $item->id ?? null,
+                'error' => $e->getMessage(),
+                'request_data' => $request->all()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to update item',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(Request $request, Item $item): JsonResponse
+    {
+        try {
+            $user = $request->user();
+
+            // Check if user owns this item
+            if ($item->user_id !== $user->id) {
+                return response()->json([
+                    'message' => 'Item not found'
+                ], 404);
+            }
+
+            $itemName = $item->name;
+            $item->delete();
+
+            Log::info('Item deleted successfully', [
+                'user_id' => $user->id,
+                'item_id' => $item->id,
+                'item_name' => $itemName
+            ]);
+
+            return response()->json([
+                'message' => 'Item deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to delete item', [
+                'user_id' => $request->user()->id ?? null,
+                'item_id' => $item->id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to delete item',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
     }
 }

@@ -1,13 +1,45 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { api, getAuthToken } from '../../utils/api';
+import api from '../../utils/api';
 
-interface User {
+// Helper functions for token management
+const setAuthToken = (token: string) => {
+  // Store in localStorage
+  localStorage.setItem('token', token);
+  
+  // Store in cookies for middleware
+  document.cookie = `auth_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+  
+  // Set authorization header
+  api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+};
+
+const clearAuthToken = () => {
+  // Remove from localStorage
+  localStorage.removeItem('token');
+  
+  // Remove from cookies
+  document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  
+  // Remove authorization header
+  delete api.defaults.headers.common['Authorization'];
+};
+
+const getStoredToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('token');
+  }
+  return null;
+};
+
+export interface User {
   id: number;
   name: string;
   email: string;
-  avatar?: string;
   provider?: string;
-  provider_id?: string;
+  avatar?: string;
+  email_verified_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface AuthState {
@@ -19,96 +51,52 @@ interface AuthState {
   message: string | null;
 }
 
-// Get initial state from localStorage if available
-const getInitialState = (): AuthState => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
-    
-    return {
-      user: userStr ? JSON.parse(userStr) : null,
-      token: token || null,
-      isAuthenticated: !!token,
-      loading: false,
-      error: null,
-      message: null,
-    };
-  }
-  
-  return {
-    user: null,
-    token: null,
-    isAuthenticated: false,
-    loading: false,
-    error: null,
-    message: null,
-  };
-};
-
-const initialState: AuthState = getInitialState();
-
-// Clear local storage helper
-const clearLocalStorage = () => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-  }
-};
-
-// Store data in local storage helper
-const storeAuthData = (token: string, user: User) => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-  }
+const initialState: AuthState = {
+  user: null,
+  token: getStoredToken(),
+  isAuthenticated: false,
+  loading: false,
+  error: null,
+  message: null,
 };
 
 // Async thunks
-export const login = createAsyncThunk(
-  'auth/login',
-  async (credentials: { email: string; password: string }, { rejectWithValue }) => {
+export const register = createAsyncThunk(
+  'auth/register',
+  async (userData: {
+    name: string;
+    email: string;
+    password: string;
+    password_confirmation: string;
+  }, { rejectWithValue }) => {
     try {
-      const response = await api.post('/api/login', credentials);
+      const response = await api.post('/register', userData);
+      const { user, token } = response.data;
       
-      // Store token and user in localStorage
-      storeAuthData(response.data.token, response.data.user);
+      setAuthToken(token);
       
-      return response.data;
+      return { user, token };
     } catch (error: any) {
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Login failed'
+        error.response?.data?.message || 'Registration failed'
       );
     }
   }
 );
 
-export const register = createAsyncThunk(
-  'auth/register',
-  async (userData: { name: string; email: string; password: string; password_confirmation: string }, { rejectWithValue }) => {
+export const login = createAsyncThunk(
+  'auth/login',
+  async (credentials: { email: string; password: string }, { rejectWithValue }) => {
     try {
-      console.log('Attempting to register with:', { ...userData, password: '[HIDDEN]', password_confirmation: '[HIDDEN]' });
+      const response = await api.post('/login', credentials);
+      const { user, token } = response.data;
       
-      const response = await api.post('/api/register', userData);
+      setAuthToken(token);
       
-      // Store token and user in localStorage
-      storeAuthData(response.data.token, response.data.user);
-      
-      return response.data;
+      return { user, token };
     } catch (error: any) {
-      console.error('Registration error:', error);
-      
-      if (error.response?.data?.errors) {
-        // Laravel validation errors
-        const errorMessages = Object.values(error.response.data.errors).flat();
-        return rejectWithValue(errorMessages.join(', '));
-      }
-      
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Registration failed'
+        error.response?.data?.message || 'Login failed'
       );
     }
   }
@@ -116,36 +104,19 @@ export const register = createAsyncThunk(
 
 export const logout = createAsyncThunk(
   'auth/logout',
-  async (_, { rejectWithValue, getState }) => {
+  async (_, { rejectWithValue }) => {
     try {
-      const state = getState() as { auth: AuthState };
-      const token = state.auth.token;
+      await api.post('/logout');
       
-      if (token) {
-        try {
-          await api.post('/api/logout', {}, {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          });
-        } catch (error) {
-          // If logout API call fails, we still want to clear local storage
-          console.warn('Logout API call failed, but continuing with local logout:', error);
-        }
-      }
+      clearAuthToken();
       
-      // Always clear localStorage regardless of API response
-      clearLocalStorage();
-      
-      return;
+      return null;
     } catch (error: any) {
-      // Even if the API call fails, we still want to clear local storage
-      clearLocalStorage();
+      // Even if logout fails on server, clear local data
+      clearAuthToken();
       
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Logout failed'
+        error.response?.data?.message || 'Logout failed'
       );
     }
   }
@@ -155,13 +126,11 @@ export const forgotPassword = createAsyncThunk(
   'auth/forgotPassword',
   async (email: string, { rejectWithValue }) => {
     try {
-      const response = await api.post('/api/forgot-password', { email });
-      return response.data;
+      const response = await api.post('/forgot-password', { email });
+      return response.data.message;
     } catch (error: any) {
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Password reset request failed'
+        error.response?.data?.message || 'Failed to send reset email'
       );
     }
   }
@@ -169,38 +138,32 @@ export const forgotPassword = createAsyncThunk(
 
 export const resetPassword = createAsyncThunk(
   'auth/resetPassword',
-  async (data: { email: string; token: string; password: string; password_confirmation: string }, { rejectWithValue }) => {
+  async (data: {
+    email: string;
+    token: string;
+    password: string;
+    password_confirmation: string;
+  }, { rejectWithValue }) => {
     try {
-      const response = await api.post('/api/reset-password', data);
-      return response.data;
+      const response = await api.post('/reset-password', data);
+      return response.data.message;
     } catch (error: any) {
-      if (error.response?.data?.errors) {
-        // Laravel validation errors
-        const errorMessages = Object.values(error.response.data.errors).flat();
-        return rejectWithValue(errorMessages.join(', '));
-      }
-      
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Password reset failed'
+        error.response?.data?.message || 'Password reset failed'
       );
     }
   }
 );
 
-// Social Authentication async thunks
 export const getSocialAuthUrl = createAsyncThunk(
   'auth/getSocialAuthUrl',
   async (provider: string, { rejectWithValue }) => {
     try {
-      const response = await api.get(`/api/auth/${provider}`);
+      const response = await api.get(`/auth/${provider}/url`);
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Failed to get social auth URL'
+        error.response?.data?.message || 'Failed to get social auth URL'
       );
     }
   }
@@ -208,22 +171,34 @@ export const getSocialAuthUrl = createAsyncThunk(
 
 export const handleSocialCallback = createAsyncThunk(
   'auth/handleSocialCallback',
-  async (data: { provider: string; code: string; state?: string }, { rejectWithValue }) => {
+  async (
+    { provider, code, state }: { provider: string; code: string; state?: string },
+    { rejectWithValue }
+  ) => {
     try {
-      const response = await api.post(`/api/auth/${data.provider}/callback`, {
-        code: data.code,
-        state: data.state,
+      console.log('Making social callback request:', { provider, code: 'present', state });
+      
+      const response = await api.post(`/auth/${provider}/callback`, {
+        code,
+        state,
       });
       
-      // Store token and user in localStorage
-      storeAuthData(response.data.token, response.data.user);
+      console.log('Social callback response:', response.data);
       
-      return response.data;
+      const { user, token } = response.data;
+      
+      if (!user || !token) {
+        throw new Error('Invalid response: missing user or token');
+      }
+      
+      setAuthToken(token);
+      console.log('Token stored successfully');
+      
+      return { user, token };
     } catch (error: any) {
+      console.error('Social callback error:', error);
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Social authentication failed'
+        error.response?.data?.message || 'Social authentication failed'
       );
     }
   }
@@ -233,28 +208,11 @@ export const linkSocialAccount = createAsyncThunk(
   'auth/linkSocialAccount',
   async (provider: string, { rejectWithValue }) => {
     try {
-      const token = getAuthToken();
-      if (!token) {
-        return rejectWithValue('No authentication token found');
-      }
-
-      const response = await api.post(`/api/auth/${provider}/link`, {}, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      // Update user in localStorage
-      if (typeof window !== 'undefined' && response.data.user) {
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-      }
-      
+      const response = await api.get(`/auth/${provider}/link`);
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Failed to link social account'
+        error.response?.data?.message || 'Failed to link social account'
       );
     }
   }
@@ -264,28 +222,57 @@ export const unlinkSocialAccount = createAsyncThunk(
   'auth/unlinkSocialAccount',
   async (_, { rejectWithValue }) => {
     try {
-      const token = getAuthToken();
-      if (!token) {
-        return rejectWithValue('No authentication token found');
-      }
-
-      const response = await api.delete('/api/auth/social/unlink', {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      // Update user in localStorage
-      if (typeof window !== 'undefined' && response.data.user) {
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-      }
-      
+      const response = await api.post('/auth/unlink');
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
-        error.message || 
-        error.response?.data?.message || 
-        'Failed to unlink social account'
+        error.response?.data?.message || 'Failed to unlink social account'
+      );
+    }
+  }
+);
+
+export const checkAuth = createAsyncThunk(
+  'auth/checkAuth',
+  async (_, { rejectWithValue }) => {
+    try {
+      const token = getStoredToken();
+      if (!token) {
+        throw new Error('No token found');
+      }
+      
+      // Set authorization header
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      const response = await api.get('/user');
+      return { user: response.data.user, token };
+    } catch (error: any) {
+      // Clear invalid token
+      clearAuthToken();
+      
+      return rejectWithValue(
+        error.response?.data?.message || 'Authentication check failed'
+      );
+    }
+  }
+);
+
+export const refreshToken = createAsyncThunk(
+  'auth/refreshToken',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await api.post('/refresh');
+      const { user, token } = response.data;
+      
+      setAuthToken(token);
+      
+      return { user, token };
+    } catch (error: any) {
+      // Clear invalid token
+      clearAuthToken();
+      
+      return rejectWithValue(
+        error.response?.data?.message || 'Token refresh failed'
       );
     }
   }
@@ -301,40 +288,31 @@ const authSlice = createSlice({
     clearMessage: (state) => {
       state.message = null;
     },
-    // Add a manual logout action for immediate cleanup
-    forceLogout: (state) => {
+    setCredentials: (state, action: PayloadAction<{ user: User; token: string }>) => {
+      console.log('Setting credentials in Redux state:', action.payload);
+      state.user = action.payload.user;
+      state.token = action.payload.token;
+      state.isAuthenticated = true;
+      state.loading = false;
+      state.error = null;
+      
+      // Ensure token is stored
+      setAuthToken(action.payload.token);
+    },
+    clearCredentials: (state) => {
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;
+      state.loading = false;
       state.error = null;
       state.message = null;
-      state.loading = false;
-      clearLocalStorage();
+      
+      clearAuthToken();
     },
   },
   extraReducers: (builder) => {
+    // Register
     builder
-      // Login
-      .addCase(login.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(login.fulfilled, (state, action) => {
-        state.loading = false;
-        state.user = action.payload.user;
-        state.token = action.payload.token;
-        state.isAuthenticated = true;
-        state.error = null;
-      })
-      .addCase(login.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload as string;
-        state.isAuthenticated = false;
-        state.user = null;
-        state.token = null;
-        clearLocalStorage();
-      })
-      // Register
       .addCase(register.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -349,12 +327,28 @@ const authSlice = createSlice({
       .addCase(register.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
-        state.isAuthenticated = false;
-        state.user = null;
-        state.token = null;
-        clearLocalStorage();
+      });
+
+    // Login
+    builder
+      .addCase(login.pending, (state) => {
+        state.loading = true;
+        state.error = null;
       })
-      // Logout
+      .addCase(login.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.isAuthenticated = true;
+        state.error = null;
+      })
+      .addCase(login.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      });
+
+    // Logout
+    builder
       .addCase(logout.pending, (state) => {
         state.loading = true;
       })
@@ -368,12 +362,15 @@ const authSlice = createSlice({
       })
       .addCase(logout.rejected, (state, action) => {
         state.loading = false;
+        // Still clear credentials even if logout failed
         state.user = null;
         state.token = null;
         state.isAuthenticated = false;
         state.error = action.payload as string;
-      })
-      // Forgot Password
+      });
+
+    // Forgot Password
+    builder
       .addCase(forgotPassword.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -381,15 +378,16 @@ const authSlice = createSlice({
       })
       .addCase(forgotPassword.fulfilled, (state, action) => {
         state.loading = false;
-        state.message = action.payload.message || 'Password reset link sent to your email';
+        state.message = action.payload;
         state.error = null;
       })
       .addCase(forgotPassword.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
-        state.message = null;
-      })
-      // Reset Password
+      });
+
+    // Reset Password
+    builder
       .addCase(resetPassword.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -397,33 +395,38 @@ const authSlice = createSlice({
       })
       .addCase(resetPassword.fulfilled, (state, action) => {
         state.loading = false;
-        state.message = action.payload.message || 'Password reset successfully';
+        state.message = action.payload;
         state.error = null;
       })
       .addCase(resetPassword.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
-        state.message = null;
-      })
-      // Get Social Auth URL
+      });
+
+    // Social Authentication
+    builder
       .addCase(getSocialAuthUrl.pending, (state) => {
         state.loading = true;
         state.error = null;
       })
-      .addCase(getSocialAuthUrl.fulfilled, (state, action) => {
+      .addCase(getSocialAuthUrl.fulfilled, (state) => {
         state.loading = false;
         state.error = null;
       })
       .addCase(getSocialAuthUrl.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
-      })
-      // Handle Social Callback
+      });
+
+    // Social Callback
+    builder
       .addCase(handleSocialCallback.pending, (state) => {
+        console.log('Social callback pending...');
         state.loading = true;
         state.error = null;
       })
       .addCase(handleSocialCallback.fulfilled, (state, action) => {
+        console.log('Social callback fulfilled:', action.payload);
         state.loading = false;
         state.user = action.payload.user;
         state.token = action.payload.token;
@@ -431,32 +434,34 @@ const authSlice = createSlice({
         state.error = null;
       })
       .addCase(handleSocialCallback.rejected, (state, action) => {
+        console.log('Social callback rejected:', action.payload);
         state.loading = false;
         state.error = action.payload as string;
-        state.isAuthenticated = false;
-        state.user = null;
-        state.token = null;
-        clearLocalStorage();
-      })
-      // Link Social Account
+      });
+
+    // Link Social Account
+    builder
       .addCase(linkSocialAccount.pending, (state) => {
         state.loading = true;
         state.error = null;
+        state.message = null;
       })
       .addCase(linkSocialAccount.fulfilled, (state, action) => {
         state.loading = false;
-        state.user = action.payload.user;
         state.message = action.payload.message;
         state.error = null;
       })
       .addCase(linkSocialAccount.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
-      })
-      // Unlink Social Account
+      });
+
+    // Unlink Social Account
+    builder
       .addCase(unlinkSocialAccount.pending, (state) => {
         state.loading = true;
         state.error = null;
+        state.message = null;
       })
       .addCase(unlinkSocialAccount.fulfilled, (state, action) => {
         state.loading = false;
@@ -468,8 +473,48 @@ const authSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       });
+
+    // Check Auth
+    builder
+      .addCase(checkAuth.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(checkAuth.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.isAuthenticated = true;
+        state.error = null;
+      })
+      .addCase(checkAuth.rejected, (state) => {
+        state.loading = false;
+        state.user = null;
+        state.token = null;
+        state.isAuthenticated = false;
+        state.error = null; // Don't show error for failed auth check
+      });
+
+    // Refresh Token
+    builder
+      .addCase(refreshToken.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(refreshToken.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.isAuthenticated = true;
+        state.error = null;
+      })
+      .addCase(refreshToken.rejected, (state) => {
+        state.loading = false;
+        state.user = null;
+        state.token = null;
+        state.isAuthenticated = false;
+        state.error = null;
+      });
   },
 });
 
-export const { clearError, clearMessage, forceLogout } = authSlice.actions;
+export const { clearError, clearMessage, setCredentials, clearCredentials } = authSlice.actions;
 export default authSlice.reducer;
