@@ -13,12 +13,18 @@ import {
   createPaymentIntent,
   confirmPayment,
   clearError,
-  clearPaymentIntent
+  clearPaymentIntent,
+  fetchPaymentHistory
 } from '../../store/slices/paymentSlice';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
-const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => void }) => {
+interface PaymentFormContentProps {
+  onPaymentSuccess?: () => void;
+  onRedirectToHistory?: () => void;
+}
+
+const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFormContentProps) => {
   const stripe = useStripe();
   const elements = useElements();
   const dispatch = useAppDispatch();
@@ -33,6 +39,7 @@ const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => voi
   const [processing, setProcessing] = useState(false);
   const [succeeded, setSucceeded] = useState(false);
   const [cardComplete, setCardComplete] = useState(false);
+  const [completedPayment, setCompletedPayment] = useState<any>(null);
 
   useEffect(() => {
     // Debug Stripe loading
@@ -117,14 +124,27 @@ const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => voi
       setProcessing(false);
     } else if (confirmedPaymentIntent?.status === 'succeeded') {
       try {
-        await dispatch(confirmPayment(confirmedPaymentIntent.id)).unwrap();
+        // Confirm payment in backend and get the payment record
+        const confirmedPayment = await dispatch(confirmPayment(confirmedPaymentIntent.id)).unwrap();
+        
         setSucceeded(true);
+        setCompletedPayment(confirmedPayment);
+        
+        // Refresh payment history to include the new payment
+        dispatch(fetchPaymentHistory({ page: 1, per_page: 10 }));
+        
+        // Clear form data
         setFormData({ amount: '', currency: 'usd', description: '' });
+        
+        // Redirect to payment history after 3 seconds
         setTimeout(() => {
           setSucceeded(false);
           dispatch(clearPaymentIntent());
-          // Call the success callback to redirect back to items tab
-          if (onPaymentSuccess) {
+          
+          // Call redirect to history callback
+          if (onRedirectToHistory) {
+            onRedirectToHistory();
+          } else if (onPaymentSuccess) {
             onPaymentSuccess();
           }
         }, 3000);
@@ -134,6 +154,14 @@ const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => voi
     }
 
     setProcessing(false);
+  };
+
+  const handleViewHistory = () => {
+    setSucceeded(false);
+    dispatch(clearPaymentIntent());
+    if (onRedirectToHistory) {
+      onRedirectToHistory();
+    }
   };
 
   const cardElementOptions = {
@@ -172,9 +200,40 @@ const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => voi
           </div>
           <h3 className="text-2xl font-bold text-gray-900 mb-2">Payment Successful!</h3>
           <p className="text-gray-600 mb-6">Your payment has been processed successfully.</p>
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <p className="text-green-800 font-medium">
-              Amount: ${(paymentIntent.amount / 100).toFixed(2)} {paymentIntent.currency.toUpperCase()}
+          
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-6 mb-6">
+            <div className="space-y-2">
+              <p className="text-green-800 font-semibold text-lg">
+                {new Intl.NumberFormat('en-US', {
+                  style: 'currency',
+                  currency: paymentIntent.currency.toUpperCase(),
+                }).format(paymentIntent.amount / 100)}
+              </p>
+              {completedPayment?.description && (
+                <p className="text-green-700 text-sm">
+                  {completedPayment.description}
+                </p>
+              )}
+              {completedPayment?.id && (
+                <p className="text-green-600 text-xs">
+                  Transaction ID: #{completedPayment.id}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <button
+              onClick={handleViewHistory}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+            >
+              <svg className="w-5 h-5 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              View Payment History
+            </button>
+            <p className="text-xs text-gray-500">
+              Automatically redirecting to payment history in 3 seconds...
             </p>
           </div>
         </div>
@@ -366,7 +425,7 @@ const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => voi
                   Processing...
                 </div>
               ) : (
-                `Pay $${(paymentIntent.amount / 100).toFixed(2)}`
+                `Pay ${(paymentIntent.amount / 100).toFixed(2)}`
               )}
             </button>
           </div>
@@ -396,7 +455,12 @@ const PaymentFormContent = ({ onPaymentSuccess }: { onPaymentSuccess?: () => voi
   );
 };
 
-const PaymentForm = () => {
+interface PaymentFormProps {
+  onPaymentSuccess?: () => void;
+  onRedirectToHistory?: () => void;
+}
+
+const PaymentForm = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFormProps) => {
   if (!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
     return (
       <div className="max-w-md mx-auto bg-white shadow-xl rounded-2xl p-8">
@@ -419,7 +483,7 @@ const PaymentForm = () => {
 
   return (
     <Elements stripe={stripePromise}>
-      <PaymentFormContent />
+      <PaymentFormContent onPaymentSuccess={onPaymentSuccess} onRedirectToHistory={onRedirectToHistory} />
     </Elements>
   );
 };

@@ -13,17 +13,21 @@ use App\Http\Controllers\PaymentController;
 */
 
 // Public routes
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::post('/register', [AuthController::class, 'register'])->name('api.register');
+Route::post('/login', [AuthController::class, 'login'])->name('api.login');
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->name('api.forgot-password');
+Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('api.reset-password');
 
 // Social authentication routes (public)
-Route::get('/auth/{provider}/url', [AuthController::class, 'getSocialAuthUrl']);
-Route::post('/auth/{provider}/callback', [AuthController::class, 'handleSocialCallback']);
+Route::get('/auth/{provider}/url', [AuthController::class, 'getSocialAuthUrl'])
+     ->where('provider', 'google|facebook|github')
+     ->name('api.social.url');
+Route::post('/auth/{provider}/callback', [AuthController::class, 'handleSocialCallback'])
+     ->where('provider', 'google|facebook|github')
+     ->name('api.social.callback');
 
 // Stripe webhook (no auth required)
-Route::post('/payments/webhook', [PaymentController::class, 'handleWebhook']);
+Route::post('/payments/webhook', [PaymentController::class, 'handleWebhook'])->name('api.payments.webhook');
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -32,26 +36,30 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json([
             'user' => $request->user()
         ]);
-    });
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::post('/refresh', [AuthController::class, 'refresh']);
-    Route::get('/me', [AuthController::class, 'me']);
+    })->name('api.user');
+
+    Route::post('/logout', [AuthController::class, 'logout'])->name('api.logout');
+    Route::post('/refresh', [AuthController::class, 'refresh'])->name('api.refresh');
+    Route::get('/me', [AuthController::class, 'me'])->name('api.me');
 
     // Social account management routes (protected)
     Route::prefix('auth')->group(function () {
-        Route::get('/{provider}/link', [AuthController::class, 'linkSocialAccount']);
-        Route::post('/unlink', [AuthController::class, 'unlinkSocialAccount']);
+        Route::get('/{provider}/link', [AuthController::class, 'linkSocialAccount'])
+             ->where('provider', 'google|facebook|github')
+             ->name('api.social.link');
+        Route::post('/unlink', [AuthController::class, 'unlinkSocialAccount'])
+             ->name('api.social.unlink');
     });
 
     // CRUD routes for items
-    Route::apiResource('items', ItemController::class);
+    Route::apiResource('items', ItemController::class, ['as' => 'api']);
 
     // Payment routes
-    Route::prefix('payments')->group(function () {
-        Route::post('/create-intent', [PaymentController::class, 'createIntent']);
-        Route::post('/confirm', [PaymentController::class, 'confirmPayment']);
-        Route::get('/history', [PaymentController::class, 'getHistory']);
-        Route::get('/stats', [PaymentController::class, 'getStats']);
-        Route::get('/{payment}', [PaymentController::class, 'getPayment']);
+    Route::prefix('payments')->name('api.payments.')->group(function () {
+        Route::post('/create-intent', [PaymentController::class, 'createIntent'])->name('create-intent');
+        Route::post('/confirm', [PaymentController::class, 'confirmPayment'])->name('confirm');
+        Route::get('/history', [PaymentController::class, 'getHistory'])->name('history');
+        Route::get('/stats', [PaymentController::class, 'getStats'])->name('stats');
+        Route::get('/{payment}', [PaymentController::class, 'getPayment'])->name('show');
     });
 });

@@ -62,40 +62,108 @@ const ItemList = ({ onPayClick }: ItemListProps) => {
     setCurrentPage(1); // Reset to first page when changing per page
   };
 
-  // Generate pagination buttons
+  // Fixed pagination with proper visibility
   const renderPaginationButtons = () => {
     if (!pagination) return null;
 
     const buttons = [];
-    const maxButtons = 5;
-    const startPage = Math.max(1, pagination.current_page - Math.floor(maxButtons / 2));
-    const endPage = Math.min(pagination.last_page, startPage + maxButtons - 1);
+    const maxButtons = 7; // Show more buttons to prevent overflow
+    const current = pagination.current_page;
+    const last = pagination.last_page;
+
+    // Calculate visible page range
+    let startPage = Math.max(1, current - 3);
+    let endPage = Math.min(last, current + 3);
+
+    // Adjust if we're near the beginning or end
+    if (current <= 4) {
+      endPage = Math.min(last, 7);
+    }
+    if (current >= last - 3) {
+      startPage = Math.max(1, last - 6);
+    }
 
     // Previous button
     buttons.push(
       <button
         key="prev"
-        onClick={() => handlePageChange(pagination.current_page - 1)}
-        disabled={pagination.current_page === 1}
-        className="px-3 py-2 ml-0 leading-tight text-gray-500 bg-white border border-gray-300 rounded-l-lg hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={() => handlePageChange(current - 1)}
+        disabled={current === 1}
+        className="relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-l-md hover:bg-blue-50 hover:text-blue-600 focus:z-20 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
       >
-        Previous
+        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        Prev
       </button>
     );
 
-    // Page buttons
+    // Always show page 1 if not in range
+    if (startPage > 1) {
+      buttons.push(
+        <button
+          key={1}
+          onClick={() => handlePageChange(1)}
+          className="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-900 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-600 focus:z-20 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+        >
+          1
+        </button>
+      );
+      
+      if (startPage > 2) {
+        buttons.push(
+          <span
+            key="dots1"
+            className="relative inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300"
+          >
+            ...
+          </span>
+        );
+      }
+    }
+
+    // Page number buttons
     for (let i = startPage; i <= endPage; i++) {
       buttons.push(
         <button
           key={i}
           onClick={() => handlePageChange(i)}
-          className={`px-3 py-2 leading-tight border border-gray-300 hover:bg-gray-100 hover:text-gray-700 ${
-            i === pagination.current_page
-              ? 'text-blue-600 bg-blue-50 border-blue-300'
-              : 'text-gray-500 bg-white'
+          className={`relative inline-flex items-center px-4 py-2 text-sm font-bold border focus:z-20 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 min-w-[44px] justify-center ${
+            i === current
+              ? 'z-10 bg-blue-600 text-white border-blue-600 shadow-md'
+              : 'text-gray-900 bg-white border-gray-300 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300'
           }`}
+          style={{
+            fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
+            fontSize: '14px',
+            lineHeight: '20px'
+          }}
         >
           {i}
+        </button>
+      );
+    }
+
+    // Always show last page if not in range
+    if (endPage < last) {
+      if (endPage < last - 1) {
+        buttons.push(
+          <span
+            key="dots2"
+            className="relative inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300"
+          >
+            ...
+          </span>
+        );
+      }
+      
+      buttons.push(
+        <button
+          key={last}
+          onClick={() => handlePageChange(last)}
+          className="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-900 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-600 focus:z-20 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+        >
+          {last}
         </button>
       );
     }
@@ -104,11 +172,14 @@ const ItemList = ({ onPayClick }: ItemListProps) => {
     buttons.push(
       <button
         key="next"
-        onClick={() => handlePageChange(pagination.current_page + 1)}
-        disabled={pagination.current_page === pagination.last_page}
-        className="px-3 py-2 leading-tight text-gray-500 bg-white border border-gray-300 rounded-r-lg hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={() => handlePageChange(current + 1)}
+        disabled={current === last}
+        className="relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-r-md hover:bg-blue-50 hover:text-blue-600 focus:z-20 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
       >
         Next
+        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
       </button>
     );
 
@@ -153,20 +224,20 @@ const ItemList = ({ onPayClick }: ItemListProps) => {
         
         {/* Items per page selector */}
         <div className="flex items-center space-x-2">
-          <label htmlFor="perPage" className="text-sm text-gray-600">
+          <label htmlFor="perPage" className="text-sm text-black">
             Items per page:
           </label>
           <select
             id="perPage"
             value={perPage}
             onChange={(e) => handlePerPageChange(Number(e.target.value))}
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
+            className="border border-black rounded px-2 py-1 text-sm"
           >
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={15}>15</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
+            <option value={5} className="text-black">5</option>
+            <option value={10} className="text-black">10</option>
+            <option value={15} className="text-black">15</option>
+            <option value={25} className="text-black">25</option>
+            <option value={50} className="text-black">50</option>
           </select>
         </div>
       </div>
@@ -237,16 +308,20 @@ const ItemList = ({ onPayClick }: ItemListProps) => {
             </table>
           </div>
 
-          {/* Pagination controls */}
+          {/* Fixed pagination controls */}
           {pagination && pagination.last_page > 1 && (
-            <div className="flex justify-center items-center mt-6 space-x-1">
-              {renderPaginationButtons()}
+            <div className="flex justify-center mt-8">
+              <div className="flex items-center">
+                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                  {renderPaginationButtons()}
+                </nav>
+              </div>
             </div>
           )}
 
           {/* Pagination summary */}
           {pagination && (
-            <div className="text-center text-sm text-gray-600 mt-4">
+            <div className="text-center text-sm text-gray-600 mt-4 font-medium">
               Page {pagination.current_page} of {pagination.last_page}
             </div>
           )}

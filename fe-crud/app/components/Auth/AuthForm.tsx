@@ -181,19 +181,7 @@ const AuthForm = () => {
           </div>
         )}
 
-        {/* Social Auth Buttons */}
-        <SocialLogin />
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300" />
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-gray-50 text-gray-500">Or continue with email</span>
-          </div>
-        </div>
-
-        {/* Forms */}
+        {/* Forms - Email and Password Fields ABOVE Social Login */}
         <div className="mt-8">
           {isLogin ? (
             /* Login Form */
@@ -236,6 +224,18 @@ const AuthForm = () => {
                   <Link href="/forgot-password" className="font-medium text-blue-600 hover:text-blue-500 transition-colors duration-200">
                     Forgot your password?
                   </Link>
+                </div>
+              </div>
+
+              {/* Social Auth Buttons */}
+              <SocialLogin />
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-gray-50 text-gray-500">Or</span>
                 </div>
               </div>
 
@@ -321,6 +321,18 @@ const AuthForm = () => {
                     onChange={handleRegisterChange}
                     disabled={loading}
                   />
+                </div>
+              </div>
+
+              {/* Social Auth Buttons */}
+              <SocialLogin />
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-gray-50 text-gray-500">Or</span>
                 </div>
               </div>
 

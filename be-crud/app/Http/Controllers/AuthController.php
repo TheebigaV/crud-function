@@ -300,7 +300,7 @@ class AuthController extends Controller
             }
 
             // Build the OAuth URL with correct redirect URI
-            $redirectUri = $config['redirect'] ?? "http://localhost:3000/auth/callback/{$provider}";
+            $redirectUri = $config['redirect'] ?? "http://localhost:3000/auth/{$provider}/callback";
 
             \Log::info('Building OAuth URL', [
                 'provider' => $provider,
@@ -348,13 +348,21 @@ class AuthController extends Controller
 
     /**
      * Handle social authentication callback
+     * FIXED: Handle both URL parameter and request body
      */
-    public function handleSocialCallback(Request $request, $provider)
+    public function handleSocialCallback(Request $request, $provider = null)
     {
         try {
+            // Get provider from URL parameter or request body
+            if (!$provider) {
+                $provider = $request->input('provider');
+            }
+
             \Log::info('Social callback initiated', [
                 'provider' => $provider,
-                'has_code' => !empty($request->input('code'))
+                'has_code' => !empty($request->input('code')),
+                'request_method' => $request->method(),
+                'all_input' => $request->all()
             ]);
 
             $validated = $this->validateProvider($provider);
@@ -366,12 +374,14 @@ class AuthController extends Controller
             // For API, we expect the authorization code in the request
             $code = $request->input('code');
             if (!$code) {
-                \Log::error('Missing authorization code');
+                \Log::error('Missing authorization code', ['request_data' => $request->all()]);
                 return response()->json(['error' => 'Authorization code is required'], 400);
             }
 
             // Set the redirect URI to match what was used for the authorization
-            $redirectUri = config("services.{$provider}.redirect");
+            $config = config("services.{$provider}");
+            $redirectUri = $config['redirect'] ?? "http://localhost:3000/auth/{$provider}/callback";
+
             \Log::info('Using redirect URI', ['redirect_uri' => $redirectUri]);
 
             // Get user from provider using the authorization code
@@ -393,27 +403,44 @@ class AuthController extends Controller
                 \Log::info('Existing user found', ['user_id' => $user->id]);
 
                 // Update user with social provider info if not already set
-                if (!$user->provider) {
-                    $user->update([
-                        'provider' => $provider,
-                        'provider_id' => $socialUser->getId(),
-                        'avatar' => $socialUser->getAvatar(),
-                    ]);
-                    \Log::info('Updated existing user with social info');
+                $updateData = [];
+                if (!$user->provider && $this->hasColumn('users', 'provider')) {
+                    $updateData['provider'] = $provider;
+                }
+                if (!$user->provider_id && $this->hasColumn('users', 'provider_id')) {
+                    $updateData['provider_id'] = $socialUser->getId();
+                }
+                if ($this->hasColumn('users', 'avatar') && $socialUser->getAvatar()) {
+                    $updateData['avatar'] = $socialUser->getAvatar();
+                }
+
+                if (!empty($updateData)) {
+                    $user->update($updateData);
+                    \Log::info('Updated existing user with social info', $updateData);
                 }
             } else {
                 \Log::info('Creating new user');
 
-                // Create new user
-                $user = User::create([
+                // Create new user - only include fields that exist in the table
+                $userData = [
                     'name' => $socialUser->getName(),
                     'email' => $socialUser->getEmail(),
-                    'provider' => $provider,
-                    'provider_id' => $socialUser->getId(),
-                    'avatar' => $socialUser->getAvatar(),
                     'email_verified_at' => now(),
                     'password' => Hash::make(Str::random(24)), // Random password
-                ]);
+                ];
+
+                // Add social fields if columns exist
+                if ($this->hasColumn('users', 'provider')) {
+                    $userData['provider'] = $provider;
+                }
+                if ($this->hasColumn('users', 'provider_id')) {
+                    $userData['provider_id'] = $socialUser->getId();
+                }
+                if ($this->hasColumn('users', 'avatar') && $socialUser->getAvatar()) {
+                    $userData['avatar'] = $socialUser->getAvatar();
+                }
+
+                $user = User::create($userData);
 
                 \Log::info('New user created', ['user_id' => $user->id]);
             }
@@ -456,7 +483,7 @@ class AuthController extends Controller
             $user = $request->user();
 
             // Check if user already has a linked provider
-            if ($user->provider) {
+            if ($user->provider ?? false) {
                 return response()->json([
                     'error' => 'Account already linked to ' . ucfirst($user->provider)
                 ], 400);
@@ -492,7 +519,7 @@ class AuthController extends Controller
         try {
             $user = $request->user();
 
-            if (!$user->provider) {
+            if (!($user->provider ?? false)) {
                 return response()->json([
                     'error' => 'No social account linked'
                 ], 400);
@@ -507,12 +534,21 @@ class AuthController extends Controller
 
             $provider = $user->provider;
 
-            // Remove social provider info
-            $user->update([
-                'provider' => null,
-                'provider_id' => null,
-                'avatar' => null,
-            ]);
+            // Remove social provider info - only if columns exist
+            $updateData = [];
+            if ($this->hasColumn('users', 'provider')) {
+                $updateData['provider'] = null;
+            }
+            if ($this->hasColumn('users', 'provider_id')) {
+                $updateData['provider_id'] = null;
+            }
+            if ($this->hasColumn('users', 'avatar')) {
+                $updateData['avatar'] = null;
+            }
+
+            if (!empty($updateData)) {
+                $user->update($updateData);
+            }
 
             return response()->json([
                 'user' => $user->fresh(),
@@ -535,7 +571,7 @@ class AuthController extends Controller
     {
         $allowedProviders = ['google', 'facebook', 'github'];
 
-        if (!in_array($provider, $allowedProviders)) {
+        if (!$provider || !in_array($provider, $allowedProviders)) {
             return [
                 'success' => false,
                 'message' => 'Provider "' . $provider . '" not supported. Supported providers: ' . implode(', ', $allowedProviders)
@@ -543,5 +579,18 @@ class AuthController extends Controller
         }
 
         return ['success' => true];
+    }
+
+    /**
+     * Check if a column exists in a table
+     */
+    private function hasColumn($table, $column)
+    {
+        try {
+            return \Schema::hasColumn($table, $column);
+        } catch (\Exception $e) {
+            \Log::warning("Could not check if column {$column} exists in {$table}: " . $e->getMessage());
+            return false;
+        }
     }
 }

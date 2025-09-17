@@ -2,16 +2,22 @@
 
 namespace App\Models;
 
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
         'name',
         'email',
@@ -22,12 +28,21 @@ class User extends Authenticatable
         'email_verified_at',
     ];
 
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var array<int, string>
+     */
     protected $hidden = [
         'password',
         'remember_token',
-        'provider_id',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
@@ -50,33 +65,36 @@ class User extends Authenticatable
     }
 
     /**
-     * Check if user has a social provider linked
+     * Get the posts for the user.
      */
-    public function hasSocialProvider(): bool
+    public function posts(): HasMany
     {
-        return !is_null($this->provider);
+        return $this->hasMany(Post::class, 'author_id');
     }
 
     /**
-     * Get the user's initials for avatar fallback
+     * Check if user is using social authentication
      */
-    public function getInitialsAttribute(): string
+    public function isSocialUser()
     {
-        $names = explode(' ', $this->name);
-        $initials = '';
+        return !empty($this->provider) && !empty($this->provider_id);
+    }
 
-        foreach ($names as $name) {
-            $initials .= strtoupper(substr($name, 0, 1));
+    /**
+     * Get the user's avatar URL
+     */
+    public function getAvatarUrlAttribute()
+    {
+        if ($this->avatar) {
+            // If avatar is a full URL, return as is
+            if (filter_var($this->avatar, FILTER_VALIDATE_URL)) {
+                return $this->avatar;
+            }
+            // If it's a local file path, construct full URL
+            return asset('storage/' . $this->avatar);
         }
 
-        return $initials;
-    }
-
-    /**
-     * Get the user's display avatar (social avatar or default)
-     */
-    public function getDisplayAvatarAttribute(): ?string
-    {
-        return $this->avatar ?: null;
+        // Default avatar or gravatar
+        return 'https://www.gravatar.com/avatar/' . md5(strtolower(trim($this->email))) . '?d=identicon&s=150';
     }
 }

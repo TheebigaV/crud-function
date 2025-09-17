@@ -49,14 +49,12 @@ export default function HomePage() {
             <div className="flex items-center space-x-4">
               <Link
                 href="/login"
-                className="text-gray-500 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-              >
+                className="text-gray-500 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
                 Sign in
               </Link>
               <Link
                 href="/register"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200"
-              >
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200">
                 Get started
               </Link>
             </div>
@@ -86,7 +84,7 @@ export default function HomePage() {
               href="/register"
               className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-200"
             >
-              Get Started
+              Register
             </Link>
             
             <Link
