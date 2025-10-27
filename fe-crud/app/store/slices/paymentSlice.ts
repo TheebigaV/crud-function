@@ -28,6 +28,12 @@ export interface CreatePaymentData {
   metadata?: any;
 }
 
+export interface PaymentHistoryParams {
+  page?: number;
+  per_page?: number;
+  item_id?: number;
+}
+
 export interface PaymentState {
   payments: Payment[];
   currentPayment: Payment | null;
@@ -53,50 +59,80 @@ const initialState: PaymentState = {
   pagination: null,
 };
 
+// Helper function to get auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    throw new Error('Authentication token not found. Please login again.');
+  }
+  
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'Accept': 'application/json',
+  };
+};
+
+// Helper function to make authenticated API calls
+const makeAuthenticatedRequest = async (url: string, options: RequestInit = {}) => {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
+  
+  if (!API_URL) {
+    throw new Error('API URL not configured. Please check your .env.local file.');
+  }
+
+  const headers = getAuthHeaders();
+  
+  const response = await fetch(`${API_URL}${url}`, {
+    ...options,
+    headers: {
+      ...headers,
+      ...options.headers,
+    },
+  });
+
+  const responseText = await response.text();
+  
+  // Handle authentication errors specifically
+  if (response.status === 401) {
+    localStorage.removeItem('token'); // Clear invalid token
+    throw new Error('Authentication failed. Please login again.');
+  }
+  
+  if (!response.ok) {
+    let errorMessage = 'Request failed';
+    try {
+      const errorData = JSON.parse(responseText);
+      errorMessage = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+    } catch (e) {
+      errorMessage = `HTTP ${response.status}: ${responseText || response.statusText}`;
+    }
+    throw new Error(errorMessage);
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch (e) {
+    throw new Error('Invalid JSON response from server');
+  }
+};
+
 // Create Payment Intent
 export const createPaymentIntent = createAsyncThunk(
   'payment/createPaymentIntent',
   async (paymentData: CreatePaymentData, { rejectWithValue }) => {
     try {
-      const token = localStorage.getItem('token');
-      const API_URL = process.env.NEXT_PUBLIC_API_URL;
+      console.log('Creating payment intent...', paymentData);
       
-      console.log('Creating payment intent...');
-      console.log('API URL:', API_URL);
-      console.log('Payment data:', paymentData);
-      
-      if (!API_URL) {
-        throw new Error('API URL not configured. Please check your .env.local file.');
-      }
-
-      const response = await fetch(`${API_URL}/payments/create-intent`, {
+      const result = await makeAuthenticatedRequest('/payments/create-intent', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(paymentData),
+        body: JSON.stringify({
+          ...paymentData,
+          currency: paymentData.currency || 'usd',
+        }),
       });
 
-      console.log('Response status:', response.status);
-      
-      const responseText = await response.text();
-      console.log('Raw response:', responseText);
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to create payment intent';
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch (e) {
-          errorMessage = `HTTP ${response.status}: ${responseText}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const result = JSON.parse(responseText);
-      console.log('Parsed result:', result);
+      console.log('Payment intent created:', result);
       return result;
     } catch (error: any) {
       console.error('Payment intent creation error:', error);
@@ -110,41 +146,14 @@ export const confirmPayment = createAsyncThunk(
   'payment/confirmPayment',
   async (paymentIntentId: string, { rejectWithValue }) => {
     try {
-      const token = localStorage.getItem('token');
-      const API_URL = process.env.NEXT_PUBLIC_API_URL;
+      console.log('Confirming payment...', paymentIntentId);
       
-      console.log('Confirming payment...');
-      console.log('Payment Intent ID:', paymentIntentId);
-      
-      if (!API_URL) {
-        throw new Error('API URL not configured. Please check your .env.local file.');
-      }
-
-      const response = await fetch(`${API_URL}/payments/confirm`, {
+      const result = await makeAuthenticatedRequest('/payments/confirm', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
         body: JSON.stringify({ payment_intent_id: paymentIntentId }),
       });
 
-      const responseText = await response.text();
-      console.log('Confirm payment response:', responseText);
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to confirm payment';
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch (e) {
-          errorMessage = `HTTP ${response.status}: ${responseText}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const result = JSON.parse(responseText);
+      console.log('Payment confirmed:', result);
       return result;
     } catch (error: any) {
       console.error('Payment confirmation error:', error);
@@ -156,41 +165,22 @@ export const confirmPayment = createAsyncThunk(
 // Fetch Payment History
 export const fetchPaymentHistory = createAsyncThunk(
   'payment/fetchPaymentHistory',
-  async (params: { page?: number; per_page?: number } = {}, { rejectWithValue }) => {
+  async (params: PaymentHistoryParams = {}, { rejectWithValue }) => {
     try {
-      const token = localStorage.getItem('token');
-      const API_URL = process.env.NEXT_PUBLIC_API_URL;
-      
-      if (!API_URL) {
-        throw new Error('API URL not configured. Please check your .env.local file.');
-      }
-
       const queryParams = new URLSearchParams({
         page: (params.page || 1).toString(),
         per_page: (params.per_page || 15).toString(),
       });
 
-      const response = await fetch(`${API_URL}/payments/history?${queryParams}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
-      });
-
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to fetch payment history';
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch (e) {
-          errorMessage = `HTTP ${response.status}: ${responseText}`;
-        }
-        throw new Error(errorMessage);
+      if (params.item_id) {
+        queryParams.append('item_id', params.item_id.toString());
       }
 
-      const result = JSON.parse(responseText);
+      console.log('Fetching payment history with params:', Object.fromEntries(queryParams.entries()));
+
+      const result = await makeAuthenticatedRequest(`/payments/history?${queryParams}`);
+
+      console.log('Payment history result:', result);
       return result;
     } catch (error: any) {
       console.error('Payment history fetch error:', error);
@@ -204,37 +194,24 @@ export const getPaymentDetails = createAsyncThunk(
   'payment/getPaymentDetails',
   async (paymentId: number, { rejectWithValue }) => {
     try {
-      const token = localStorage.getItem('token');
-      const API_URL = process.env.NEXT_PUBLIC_API_URL;
-      
-      if (!API_URL) {
-        throw new Error('API URL not configured. Please check your .env.local file.');
-      }
-
-      const response = await fetch(`${API_URL}/payments/${paymentId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
-      });
-
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to fetch payment details';
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch (e) {
-          errorMessage = `HTTP ${response.status}: ${responseText}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const result = JSON.parse(responseText);
+      const result = await makeAuthenticatedRequest(`/payments/${paymentId}`);
       return result;
     } catch (error: any) {
       console.error('Payment details fetch error:', error);
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+// Test Stripe Connection
+export const testStripeConnection = createAsyncThunk(
+  'payment/testStripeConnection',
+  async (_, { rejectWithValue }) => {
+    try {
+      const result = await makeAuthenticatedRequest('/payments/test-stripe');
+      return result;
+    } catch (error: any) {
+      console.error('Stripe connection test error:', error);
       return rejectWithValue(error.message);
     }
   }
@@ -255,6 +232,11 @@ const paymentSlice = createSlice({
     },
     setCurrentPayment: (state, action: PayloadAction<Payment | null>) => {
       state.currentPayment = action.payload;
+    },
+    // Add action to handle auth errors
+    handleAuthError: (state) => {
+      state.loading = false;
+      state.error = 'Authentication failed. Please login again.';
     },
   },
   extraReducers: (builder) => {
@@ -301,15 +283,21 @@ const paymentSlice = createSlice({
       })
       .addCase(fetchPaymentHistory.fulfilled, (state, action) => {
         state.loading = false;
-        state.payments = action.payload.data;
-        state.pagination = {
-          current_page: action.payload.current_page,
-          last_page: action.payload.last_page,
-          per_page: action.payload.per_page,
-          total: action.payload.total,
-          from: action.payload.from,
-          to: action.payload.to,
-        };
+        state.payments = action.payload.data || action.payload.payments || [];
+        
+        // Handle pagination metadata
+        if (action.payload.current_page !== undefined) {
+          state.pagination = {
+            current_page: action.payload.current_page,
+            last_page: action.payload.last_page,
+            per_page: action.payload.per_page,
+            total: action.payload.total,
+            from: action.payload.from,
+            to: action.payload.to,
+          };
+        } else if (action.payload.pagination) {
+          state.pagination = action.payload.pagination;
+        }
       })
       .addCase(fetchPaymentHistory.rejected, (state, action) => {
         state.loading = false;
@@ -328,6 +316,19 @@ const paymentSlice = createSlice({
       .addCase(getPaymentDetails.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
+      })
+
+      // Test Stripe Connection
+      .addCase(testStripeConnection.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(testStripeConnection.fulfilled, (state) => {
+        state.loading = false;
+      })
+      .addCase(testStripeConnection.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });
@@ -337,6 +338,7 @@ export const {
   clearCurrentPayment,
   clearPaymentIntent,
   setCurrentPayment,
+  handleAuthError,
 } = paymentSlice.actions;
 
 export default paymentSlice.reducer;

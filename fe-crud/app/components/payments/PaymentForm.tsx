@@ -19,21 +19,45 @@ import {
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
+interface SelectedItem {
+  id: number;
+  name: string;
+  description?: string;
+  price?: number;
+}
+
 interface PaymentFormContentProps {
   onPaymentSuccess?: () => void;
   onRedirectToHistory?: () => void;
+  selectedItem?: SelectedItem | null;
+  onClearSelection?: () => void;
 }
 
-const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFormContentProps) => {
+const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory, selectedItem, onClearSelection }: PaymentFormContentProps) => {
   const stripe = useStripe();
   const elements = useElements();
   const dispatch = useAppDispatch();
   const { paymentIntent, loading, error } = useAppSelector((state) => state.payment);
   
+  // Safe function to format price - now handles required prices
+  const formatPrice = (price: any): number | undefined => {
+    if (price === null || price === undefined || price === '') {
+      return undefined;
+    }
+    
+    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+    
+    if (isNaN(numPrice) || numPrice <= 0) {
+      return undefined;
+    }
+    
+    return numPrice;
+  };
+
   const [formData, setFormData] = useState({
-    amount: '',
+    amount: selectedItem?.price ? formatPrice(selectedItem.price)?.toString() || '' : '',
     currency: 'usd',
-    description: '',
+    description: selectedItem ? `Payment for ${selectedItem.name}` : '',
   });
   const [cardError, setCardError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -41,16 +65,26 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
   const [cardComplete, setCardComplete] = useState(false);
   const [completedPayment, setCompletedPayment] = useState<any>(null);
 
+  // Update form when selected item changes
   useEffect(() => {
-    // Debug Stripe loading
-    console.log('Stripe object:', stripe);
-    console.log('Elements object:', elements);
-    console.log('Stripe publishable key:', process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
-    
+    if (selectedItem) {
+      const formattedPrice = formatPrice(selectedItem.price);
+      console.log('PaymentForm: Selected item changed', selectedItem);
+      console.log('PaymentForm: Formatted price', formattedPrice);
+      
+      setFormData(prev => ({
+        ...prev,
+        amount: formattedPrice ? formattedPrice.toString() : '',
+        description: `Payment for ${selectedItem.name}${selectedItem.description ? ` - ${selectedItem.description}` : ''}`,
+      }));
+    }
+  }, [selectedItem]);
+
+  useEffect(() => {
     return () => {
       dispatch(clearPaymentIntent());
     };
-  }, [dispatch, stripe, elements]);
+  }, [dispatch]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
@@ -64,7 +98,6 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
   };
 
   const handleCardChange = (event: any) => {
-    console.log('Card change event:', event);
     setCardError(event.error ? event.error.message : null);
     setCardComplete(event.complete);
   };
@@ -72,21 +105,48 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
   const handleCreatePaymentIntent = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+    const amountValue = parseFloat(formData.amount);
+    console.log('PaymentForm: Creating payment intent with amount:', amountValue);
+    
+    if (!formData.amount || amountValue <= 0) {
       setCardError('Please enter a valid amount');
       return;
     }
 
-    const amount = Math.round(parseFloat(formData.amount) * 100);
+    if (amountValue < 0.5) {
+      setCardError('Minimum amount is $0.50');
+      return;
+    }
+
+    const amount = Math.round(amountValue * 100); // Convert to cents
+    console.log('PaymentForm: Amount in cents:', amount);
     
     try {
+      // Include item information in metadata
+      const metadata: any = {};
+      if (selectedItem) {
+        metadata.item_id = selectedItem.id.toString();
+        metadata.item_name = selectedItem.name;
+        if (selectedItem.description) {
+          metadata.item_description = selectedItem.description;
+        }
+        // Store the original item price for reference
+        if (selectedItem.price) {
+          metadata.item_original_price = formatPrice(selectedItem.price)?.toString() || '';
+        }
+      }
+
+      console.log('PaymentForm: Metadata for payment:', metadata);
+
       await dispatch(createPaymentIntent({
         amount,
         currency: formData.currency,
         description: formData.description || undefined,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       })).unwrap();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create payment intent:', error);
+      setCardError(error.message || 'Failed to create payment. Please try again.');
     }
   };
 
@@ -94,7 +154,6 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
     e.preventDefault();
 
     if (!stripe || !elements || !paymentIntent) {
-      console.log('Missing:', { stripe: !!stripe, elements: !!elements, paymentIntent: !!paymentIntent });
       return;
     }
 
@@ -102,13 +161,14 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
     setCardError(null);
 
     const cardElement = elements.getElement(CardElement);
-    console.log('Card element:', cardElement);
 
     if (!cardElement) {
       setCardError('Card element not found');
       setProcessing(false);
       return;
     }
+
+    console.log('PaymentForm: Confirming payment for amount:', paymentIntent.amount / 100);
 
     const { error: stripeError, paymentIntent: confirmedPaymentIntent } = await stripe.confirmCardPayment(
       paymentIntent.client_secret,
@@ -126,30 +186,38 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
       try {
         // Confirm payment in backend and get the payment record
         const confirmedPayment = await dispatch(confirmPayment(confirmedPaymentIntent.id)).unwrap();
+        console.log('PaymentForm: Payment confirmed:', confirmedPayment);
         
         setSucceeded(true);
         setCompletedPayment(confirmedPayment);
         
         // Refresh payment history to include the new payment
-        dispatch(fetchPaymentHistory({ page: 1, per_page: 10 }));
+        const historyParams: any = { page: 1, per_page: 10 };
+        if (selectedItem) {
+          historyParams.item_id = selectedItem.id;
+        }
+        dispatch(fetchPaymentHistory(historyParams));
         
-        // Clear form data
-        setFormData({ amount: '', currency: 'usd', description: '' });
+        // Clear form data but keep item-specific information if item is selected
+        setFormData({ 
+          amount: selectedItem?.price ? formatPrice(selectedItem.price)?.toString() || '' : '', 
+          currency: 'usd', 
+          description: selectedItem ? `Payment for ${selectedItem.name}` : '' 
+        });
         
         // Redirect to payment history after 3 seconds
         setTimeout(() => {
           setSucceeded(false);
           dispatch(clearPaymentIntent());
           
-          // Call redirect to history callback
           if (onRedirectToHistory) {
             onRedirectToHistory();
           } else if (onPaymentSuccess) {
             onPaymentSuccess();
           }
         }, 3000);
-      } catch (error) {
-        setCardError('Payment succeeded but failed to update our records');
+      } catch (error: any) {
+        setCardError(error.message || 'Payment succeeded but failed to update our records');
       }
     }
 
@@ -162,6 +230,18 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
     if (onRedirectToHistory) {
       onRedirectToHistory();
     }
+  };
+
+  const handleClearSelection = () => {
+    if (onClearSelection) {
+      onClearSelection();
+    }
+    // Reset form when clearing selection
+    setFormData({
+      amount: '',
+      currency: 'usd',
+      description: '',
+    });
   };
 
   const cardElementOptions = {
@@ -199,7 +279,12 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
             </svg>
           </div>
           <h3 className="text-2xl font-bold text-gray-900 mb-2">Payment Successful!</h3>
-          <p className="text-gray-600 mb-6">Your payment has been processed successfully.</p>
+          <p className="text-gray-600 mb-6">
+            {selectedItem 
+              ? `Your payment for "${selectedItem.name}" has been processed successfully.`
+              : 'Your payment has been processed successfully.'
+            }
+          </p>
           
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-6 mb-6">
             <div className="space-y-2">
@@ -209,6 +294,19 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
                   currency: paymentIntent.currency.toUpperCase(),
                 }).format(paymentIntent.amount / 100)}
               </p>
+              {selectedItem && (
+                <div className="bg-green-100 rounded-lg p-3 mb-3">
+                  <p className="text-green-800 font-medium text-sm">Item: {selectedItem.name}</p>
+                  {selectedItem.description && (
+                    <p className="text-green-700 text-xs">{selectedItem.description}</p>
+                  )}
+                  {selectedItem.price && formatPrice(selectedItem.price) && (
+                    <p className="text-green-700 text-xs">
+                      Item Price: ${formatPrice(selectedItem.price)!.toFixed(2)}
+                    </p>
+                  )}
+                </div>
+              )}
               {completedPayment?.description && (
                 <p className="text-green-700 text-sm">
                   {completedPayment.description}
@@ -249,7 +347,9 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
           </svg>
         </div>
-        <h2 className="text-2xl font-bold text-gray-900">Secure Payment</h2>
+        <h2 className="text-2xl font-bold text-gray-900">
+          {selectedItem ? `Pay for ${selectedItem.name}` : 'Secure Payment'}
+        </h2>
         <p className="text-gray-600 mt-2">Your payment information is encrypted and secure</p>
       </div>
       
@@ -270,6 +370,43 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
 
       {!paymentIntent ? (
         <form onSubmit={handleCreatePaymentIntent} className="space-y-6">
+          {/* Item Information Display */}
+          {selectedItem && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 flex items-center">
+                    <svg className="w-4 h-4 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                    {selectedItem.name}
+                  </h3>
+                  {selectedItem.description && (
+                    <p className="text-sm text-gray-600 mt-1">{selectedItem.description}</p>
+                  )}
+                  {selectedItem.price && formatPrice(selectedItem.price) && (
+                    <p className="text-sm text-blue-600 font-medium mt-1">
+                      Item Price: ${formatPrice(selectedItem.price)!.toFixed(2)}
+                    </p>
+                  )}
+                  <div className="text-xs text-gray-500 mt-2">
+                    Item ID: #{selectedItem.id}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  className="text-gray-400 hover:text-gray-600 transition-colors ml-2"
+                  title="Clear item selection"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Amount *
@@ -284,12 +421,23 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
                 value={formData.amount}
                 onChange={handleChange}
                 className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 placeholder-gray-400"
-                placeholder="Enter amount"
+                placeholder={
+                  selectedItem?.price && formatPrice(selectedItem.price) 
+                    ? formatPrice(selectedItem.price)!.toFixed(2)
+                    : "Enter amount"
+                }
                 required
                 autoComplete="off"
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">Minimum amount: $0.50</p>
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>Minimum amount: $0.50</span>
+              {selectedItem?.price && formatPrice(selectedItem.price) && (
+                <span className="text-blue-600">
+                  Item Price: ${formatPrice(selectedItem.price)!.toFixed(2)}
+                </span>
+              )}
+            </div>
           </div>
 
           <div>
@@ -311,7 +459,7 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Description (Optional)
+              Description {!selectedItem && '(Optional)'}
             </label>
             <textarea
               name="description"
@@ -319,8 +467,9 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
               onChange={handleChange}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors resize-none text-gray-900 placeholder-gray-400 bg-white"
               rows={3}
-              placeholder="What is this payment for?"
+              placeholder={selectedItem ? `Payment for ${selectedItem.name}` : "What is this payment for?"}
               disabled={loading}
+              readOnly={!!selectedItem}
             />
           </div>
 
@@ -335,7 +484,7 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
                 Creating Payment...
               </div>
             ) : (
-              'Continue to Payment'
+              `Continue to Payment`
             )}
           </button>
         </form>
@@ -348,9 +497,27 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
               </svg>
               Payment Summary
             </h3>
+            {selectedItem && (
+              <div className="mb-3 p-3 bg-white rounded-lg border border-blue-200">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-medium text-gray-900">{selectedItem.name}</p>
+                    {selectedItem.description && (
+                      <p className="text-sm text-gray-600">{selectedItem.description}</p>
+                    )}
+                    {selectedItem.price && formatPrice(selectedItem.price) && (
+                      <p className="text-sm text-blue-600">
+                        Item Price: ${formatPrice(selectedItem.price)!.toFixed(2)}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-500">Item ID: #{selectedItem.id}</p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span className="text-gray-600">Amount:</span>
+                <span className="text-gray-600">Amount to Pay:</span>
                 <span className="font-semibold text-gray-900">
                   ${(paymentIntent.amount / 100).toFixed(2)} {paymentIntent.currency.toUpperCase()}
                 </span>
@@ -358,7 +525,7 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
               {formData.description && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Description:</span>
-                  <span className="text-gray-900">{formData.description}</span>
+                  <span className="text-gray-900 text-sm">{formData.description}</span>
                 </div>
               )}
             </div>
@@ -458,9 +625,11 @@ const PaymentFormContent = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFo
 interface PaymentFormProps {
   onPaymentSuccess?: () => void;
   onRedirectToHistory?: () => void;
+  selectedItem?: SelectedItem | null;
+  onClearSelection?: () => void;
 }
 
-const PaymentForm = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFormProps) => {
+const PaymentForm = ({ onPaymentSuccess, onRedirectToHistory, selectedItem, onClearSelection }: PaymentFormProps) => {
   if (!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
     return (
       <div className="max-w-md mx-auto bg-white shadow-xl rounded-2xl p-8">
@@ -483,7 +652,12 @@ const PaymentForm = ({ onPaymentSuccess, onRedirectToHistory }: PaymentFormProps
 
   return (
     <Elements stripe={stripePromise}>
-      <PaymentFormContent onPaymentSuccess={onPaymentSuccess} onRedirectToHistory={onRedirectToHistory} />
+      <PaymentFormContent 
+        onPaymentSuccess={onPaymentSuccess} 
+        onRedirectToHistory={onRedirectToHistory}
+        selectedItem={selectedItem}
+        onClearSelection={onClearSelection}
+      />
     </Elements>
   );
 };

@@ -33,7 +33,8 @@ export default function OAuthCallback({ params }: PageProps) {
           code: code ? 'present' : 'missing',
           state,
           error: errorParam,
-          currentUrl: window.location.href
+          currentUrl: window.location.href,
+          searchParams: Object.fromEntries(searchParams.entries())
         });
 
         // Check for OAuth errors
@@ -43,7 +44,7 @@ export default function OAuthCallback({ params }: PageProps) {
 
         // Check for missing authorization code
         if (!code) {
-          throw new Error('Authorization code not found');
+          throw new Error('Authorization code not found in callback');
         }
 
         // Check for valid provider
@@ -51,9 +52,9 @@ export default function OAuthCallback({ params }: PageProps) {
           throw new Error('Invalid provider');
         }
 
-        console.log('Processing OAuth callback for provider:', provider);
+        console.log(`Processing OAuth callback for provider: ${provider}`);
 
-        // Handle the social callback
+        // Handle the social callback through Redux
         const result = await dispatch(handleSocialCallback({
           provider,
           code,
@@ -62,42 +63,48 @@ export default function OAuthCallback({ params }: PageProps) {
 
         console.log('OAuth callback successful, result:', result);
 
-        // Wait for state to update
+        // Wait a moment for state to update
         setTimeout(() => {
           console.log('Redirecting to dashboard...');
-          window.location.href = '/dashboard';
+          router.push('/dashboard');
         }, 1000);
 
       } catch (error: any) {
         console.error('OAuth callback error:', error);
-        setError(error.message || 'Authentication failed');
+        const errorMessage = error.message || 'Authentication failed';
+        setError(errorMessage);
         
         // Redirect to login with error after 3 seconds
         setTimeout(() => {
-          const errorMessage = encodeURIComponent(error.message || 'Authentication failed');
-          router.push(`/login?error=${errorMessage}`);
+          const encodedError = encodeURIComponent(errorMessage);
+          router.push(`/login?error=${encodedError}`);
         }, 3000);
       } finally {
         setLoading(false);
       }
     };
 
-    // Always run the callback handler if we have code or error
+    // Only run callback handler if we have required params
     if (searchParams.get('code') || searchParams.get('error')) {
       handleCallback();
     } else {
-      // No params, redirect to login
-      router.push('/login');
+      // No OAuth params found, redirect to login
+      console.log('No OAuth params found, redirecting to login');
+      setError('No OAuth parameters found');
+      setTimeout(() => {
+        router.push('/login');
+      }, 2000);
+      setLoading(false);
     }
   }, [dispatch, router, searchParams, params.provider]);
 
-  // Check if already authenticated
+  // Check if already authenticated and redirect
   useEffect(() => {
-    if (isAuthenticated && user && !loading) {
-      console.log('User is authenticated, redirecting to dashboard');
+    if (isAuthenticated && user && !loading && !error) {
+      console.log('User is already authenticated, redirecting to dashboard');
       router.push('/dashboard');
     }
-  }, [isAuthenticated, user, loading, router]);
+  }, [isAuthenticated, user, loading, error, router]);
 
   if (loading) {
     return (

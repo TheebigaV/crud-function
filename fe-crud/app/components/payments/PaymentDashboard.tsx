@@ -6,14 +6,51 @@ import PaymentHistory from './PaymentHistory';
 
 interface PaymentDashboardProps {
   onPaymentSuccess?: () => void;
+  selectedItem?: {
+    id: number;
+    name: string;
+    description?: string;
+    price?: number;
+  } | null;
+  onClearSelection?: () => void;
 }
 
-const PaymentDashboard = ({ onPaymentSuccess }: PaymentDashboardProps) => {
+const PaymentDashboard = ({ onPaymentSuccess, selectedItem, onClearSelection }: PaymentDashboardProps) => {
   const [activeTab, setActiveTab] = useState<'payment' | 'history'>('payment');
+
+  // Helper function to safely format price
+  const formatPrice = (price: any): number | undefined => {
+    if (price === null || price === undefined || price === '') {
+      return undefined;
+    }
+    
+    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+    
+    if (isNaN(numPrice) || numPrice <= 0) {
+      return undefined;
+    }
+    
+    return numPrice;
+  };
+
+  // Auto-switch to payment tab when an item is selected
+  useEffect(() => {
+    if (selectedItem) {
+      setActiveTab('payment');
+      console.log('PaymentDashboard: Auto-switching to payment tab for selected item:', selectedItem);
+    }
+  }, [selectedItem]);
 
   // Function to switch to payment history tab
   const handleRedirectToHistory = () => {
     setActiveTab('history');
+  };
+
+  // Handle clearing item selection
+  const handleClearSelection = () => {
+    if (onClearSelection) {
+      onClearSelection();
+    }
   };
 
   return (
@@ -26,7 +63,9 @@ const PaymentDashboard = ({ onPaymentSuccess }: PaymentDashboardProps) => {
             </svg>
             Payment Center
           </h1>
-          <p className="text-gray-600">Secure payments and transaction history</p>
+          <p className="text-gray-600">
+            {selectedItem ? `Pay for: ${selectedItem.name}` : 'Secure payments and transaction history'}
+          </p>
         </div>
         
         {/* Enhanced Tab Navigation */}
@@ -44,7 +83,7 @@ const PaymentDashboard = ({ onPaymentSuccess }: PaymentDashboardProps) => {
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
-                Make Payment
+                {selectedItem ? 'Pay for Item' : 'Make Payment'}
                 {activeTab === 'payment' && (
                   <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">
                     Active
@@ -81,6 +120,8 @@ const PaymentDashboard = ({ onPaymentSuccess }: PaymentDashboardProps) => {
                 <PaymentForm 
                   onPaymentSuccess={onPaymentSuccess}
                   onRedirectToHistory={handleRedirectToHistory}
+                  selectedItem={selectedItem}
+                  onClearSelection={handleClearSelection}
                 />
               </div>
             )}
@@ -89,7 +130,7 @@ const PaymentDashboard = ({ onPaymentSuccess }: PaymentDashboardProps) => {
           <div className={`transition-all duration-300 ${activeTab === 'history' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 absolute pointer-events-none'}`}>
             {activeTab === 'history' && (
               <div>
-                <PaymentHistory />
+                <PaymentHistory selectedItem={selectedItem} />
               </div>
             )}
           </div>
@@ -100,16 +141,34 @@ const PaymentDashboard = ({ onPaymentSuccess }: PaymentDashboardProps) => {
           <div className="mt-8 text-center">
             <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Need to make another payment?</h3>
-              <p className="text-gray-600 mb-4">Switch back to the payment form to process new transactions</p>
-              <button
-                onClick={() => setActiveTab('payment')}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
-              >
-                <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Make New Payment
-              </button>
+              <p className="text-gray-600 mb-4">
+                {selectedItem 
+                  ? `Continue paying for ${selectedItem.name} or switch back to process new transactions`
+                  : 'Switch back to the payment form to process new transactions'
+                }
+              </p>
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={() => setActiveTab('payment')}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+                >
+                  <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  {selectedItem ? 'Pay for Item' : 'Make New Payment'}
+                </button>
+                {selectedItem && (
+                  <button
+                    onClick={handleClearSelection}
+                    className="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+                  >
+                    <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Clear Selection
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

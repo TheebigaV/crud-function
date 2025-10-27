@@ -7,11 +7,20 @@ import ItemList from '../ItemList';
 import PaymentDashboard from '../payments/PaymentDashboard';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { logout } from '../../store/slices/authSlice';
+import { Item } from '../../store/slices/crudSlice';
+
+interface PaymentItem {
+  id: number;
+  name: string;
+  description?: string;
+  price?: number;
+}
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState<'items' | 'payments'>('items');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [selectedPaymentItem, setSelectedPaymentItem] = useState<PaymentItem | null>(null);
   
   // Pagination state management
   const [currentPage, setCurrentPage] = useState(1);
@@ -44,16 +53,34 @@ const Dashboard = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  // Function to switch to payments tab
-  const switchToPayments = () => {
+  // Function to handle item payment - switches to payments tab and sets selected item
+  const handleItemPayment = (item: PaymentItem) => {
+    console.log('Dashboard: Item selected for payment', item);
+    setSelectedPaymentItem(item);
     setActiveTab('payments');
     setCurrentPage(1); // Reset pagination when switching tabs
+  };
+
+  // Function to clear selected payment item
+  const clearSelectedPaymentItem = () => {
+    console.log('Dashboard: Clearing selected payment item');
+    setSelectedPaymentItem(null);
   };
 
   // Function to switch back to items tab
   const switchToItems = () => {
     setActiveTab('items');
     setCurrentPage(1); // Reset pagination when switching tabs
+    // Clear selected item when switching back to items
+    setSelectedPaymentItem(null);
+  };
+
+  // Handle payment success - can either stay on payments tab or switch back to items
+  const handlePaymentSuccess = () => {
+    console.log('Dashboard: Payment successful');
+    // For now, keep the user on payments tab to view history
+    // You could also switch back to items tab if preferred
+    // switchToItems();
   };
 
   // Handle logout
@@ -123,6 +150,14 @@ const Dashboard = () => {
                 <p className="mt-1 text-sm text-gray-600">
                   Manage your items and payments from your dashboard
                 </p>
+                {selectedPaymentItem && (
+                  <div className="mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                    Selected for payment: {selectedPaymentItem.name}
+                  </div>
+                )}
               </div>
               <div className="flex items-center space-x-4">
                 {user?.avatar && (
@@ -179,6 +214,9 @@ const Dashboard = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                 </svg>
                 Items Management
+                {selectedPaymentItem && activeTab !== 'items' && (
+                  <span className="ml-2 w-2 h-2 bg-orange-400 rounded-full animate-pulse"></span>
+                )}
               </div>
             </button>
             <button
@@ -194,6 +232,11 @@ const Dashboard = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                 </svg>
                 Payments
+                {selectedPaymentItem && (
+                  <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">
+                    1 selected
+                  </span>
+                )}
               </div>
             </button>
           </nav>
@@ -204,6 +247,50 @@ const Dashboard = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'items' && (
           <div className="space-y-8">
+            {/* Selected item notification */}
+            {selectedPaymentItem && (
+              <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm text-blue-700">
+                        <strong>{selectedPaymentItem.name}</strong> is selected for payment. 
+                        Switch to the Payments tab to complete the transaction.
+                      </p>
+                      {selectedPaymentItem.description && (
+                        <p className="text-xs text-blue-600 mt-1">{selectedPaymentItem.description}</p>
+                      )}
+                      {selectedPaymentItem.price && (
+                        <p className="text-xs text-blue-600 mt-1">Suggested amount: ${selectedPaymentItem.price.toFixed(2)}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setActiveTab('payments')}
+                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1 rounded transition-colors"
+                    >
+                      Go to Payments
+                    </button>
+                    <button
+                      onClick={clearSelectedPaymentItem}
+                      className="text-blue-400 hover:text-blue-600 transition-colors"
+                      title="Clear selection"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Items Management */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-1">
@@ -211,10 +298,7 @@ const Dashboard = () => {
               </div>
               <div className="lg:col-span-2">
                 <ItemList 
-                  onPayClick={switchToPayments}
-                  currentPage={currentPage}
-                  itemsPerPage={itemsPerPage}
-                  onPageChange={handlePageChange}
+                  onPayClick={handleItemPayment}
                 />
               </div>
             </div>
@@ -223,7 +307,11 @@ const Dashboard = () => {
 
         {activeTab === 'payments' && (
           <div>
-            <PaymentDashboard onPaymentSuccess={switchToItems} />
+            <PaymentDashboard 
+              onPaymentSuccess={handlePaymentSuccess}
+              selectedItem={selectedPaymentItem}
+              onClearSelection={clearSelectedPaymentItem}
+            />
           </div>
         )}
       </div>
@@ -271,6 +359,11 @@ const Dashboard = () => {
                 <p className="text-sm text-gray-500">
                   Are you sure you want to logout? You will need to login again to access your dashboard.
                 </p>
+                {selectedPaymentItem && (
+                  <p className="text-xs text-orange-600 mt-2">
+                    Note: Your selected item "{selectedPaymentItem.name}" will be cleared.
+                  </p>
+                )}
               </div>
               <div className="items-center px-4 py-3">
                 <div className="flex space-x-4">

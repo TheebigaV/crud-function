@@ -5,6 +5,7 @@ export interface Item {
   id?: number;
   name: string;
   description: string;
+  price?: number; // Added price field for payments
   user_id?: number;
   created_at?: string;
   updated_at?: string;
@@ -75,7 +76,7 @@ export const fetchItems = createAsyncThunk(
 
 export const createItem = createAsyncThunk(
   'crud/createItem',
-  async (itemData: { name: string; description: string }, { rejectWithValue }) => {
+  async (itemData: { name: string; description: string; price?: number }, { rejectWithValue }) => {
     try {
       console.log('Creating item:', itemData);
       
@@ -95,7 +96,7 @@ export const createItem = createAsyncThunk(
 
 export const updateItem = createAsyncThunk(
   'crud/updateItem',
-  async (itemData: { id: number; name: string; description: string }, { rejectWithValue }) => {
+  async (itemData: { id: number; name: string; description: string; price?: number }, { rejectWithValue }) => {
     try {
       console.log('Updating item:', itemData);
       

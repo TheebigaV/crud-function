@@ -55,7 +55,7 @@ export default function HomePage() {
               <Link
                 href="/register"
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200">
-                Get started
+                Register
               </Link>
             </div>
           </div>
