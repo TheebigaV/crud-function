@@ -13,10 +13,12 @@ class Item extends Model
     protected $fillable = [
         'name',
         'description',
-        'user_id', // Make sure this is included if you have user association
+        'price',  // <- ADDED: This was missing!
+        'user_id',
     ];
 
     protected $casts = [
+        'price' => 'decimal:2',  // <- ADDED: Proper decimal casting for price
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

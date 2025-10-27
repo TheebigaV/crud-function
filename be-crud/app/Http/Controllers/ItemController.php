@@ -60,10 +60,11 @@ class ItemController extends Controller
                 'request_data' => $request->all()
             ]);
 
-            // Validate input
+            // Validate input - ADDED price validation
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255',
                 'description' => 'required|string|max:1000',
+                'price' => 'required|numeric|min:0.01|max:999999.99',  // ADDED: Price validation
             ]);
 
             if ($validator->fails()) {
@@ -80,16 +81,18 @@ class ItemController extends Controller
 
             $user = $request->user();
 
-            // Create the item
+            // Create the item - ADDED price field
             $item = $user->items()->create([
                 'name' => $request->name,
                 'description' => $request->description,
+                'price' => $request->price,  // ADDED: Include price in creation
             ]);
 
             Log::info('Item created successfully', [
                 'user_id' => $user->id,
                 'item_id' => $item->id,
-                'item_name' => $item->name
+                'item_name' => $item->name,
+                'item_price' => $item->price  // ADDED: Log price
             ]);
 
             return response()->json([
@@ -161,29 +164,49 @@ class ItemController extends Controller
                 ], 404);
             }
 
-            // Validate input
+            Log::info('Updating item', [
+                'user_id' => $user->id,
+                'item_id' => $item->id,
+                'request_data' => $request->all(),
+                'current_item_data' => $item->toArray()
+            ]);
+
+            // Validate input - ADDED price validation
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255',
                 'description' => 'required|string|max:1000',
+                'price' => 'required|numeric|min:0.01|max:999999.99',  // ADDED: Price validation
             ]);
 
             if ($validator->fails()) {
+                Log::warning('Item update validation failed', [
+                    'errors' => $validator->errors(),
+                    'request_data' => $request->all(),
+                    'item_id' => $item->id
+                ]);
+
                 return response()->json([
                     'message' => 'Validation failed',
                     'errors' => $validator->errors()
                 ], 422);
             }
 
-            // Update the item
+            // Update the item - ADDED price field
             $item->update([
                 'name' => $request->name,
                 'description' => $request->description,
+                'price' => $request->price,  // ADDED: Include price in update
             ]);
+
+            // Refresh the item from database to get updated data
+            $item->refresh();
 
             Log::info('Item updated successfully', [
                 'user_id' => $user->id,
                 'item_id' => $item->id,
-                'item_name' => $item->name
+                'item_name' => $item->name,
+                'item_price' => $item->price,  // ADDED: Log updated price
+                'updated_item_data' => $item->toArray()
             ]);
 
             return response()->json([
@@ -196,6 +219,7 @@ class ItemController extends Controller
                 'user_id' => $request->user()->id ?? null,
                 'item_id' => $item->id ?? null,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'request_data' => $request->all()
             ]);
 

@@ -17,10 +17,11 @@ class Payment extends Model
         'currency',
         'status',
         'description',
-        'metadata'
+        'metadata',
     ];
 
     protected $casts = [
+        'amount' => 'integer',
         'metadata' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

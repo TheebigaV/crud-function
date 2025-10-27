@@ -66,26 +66,62 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         try {
+            // Log the incoming request for debugging
+            \Log::info('Login attempt', [
+                'email' => $request->email,
+                'has_password' => !empty($request->password),
+                'request_headers' => $request->headers->all(),
+                'request_method' => $request->method(),
+                'content_type' => $request->header('Content-Type'),
+                'all_input' => $request->all()
+            ]);
+
             $validator = Validator::make($request->all(), [
                 'email' => 'required|email',
                 'password' => 'required',
             ]);
 
             if ($validator->fails()) {
+                \Log::warning('Login validation failed', [
+                    'errors' => $validator->errors(),
+                    'email' => $request->email
+                ]);
+
                 return response()->json([
                     'message' => 'Validation failed',
                     'errors' => $validator->errors()
                 ], 422);
             }
 
-            if (!Auth::attempt($request->only('email', 'password'))) {
+            // Check if user exists
+            $user = User::where('email', $request->email)->first();
+            if (!$user) {
+                \Log::warning('Login failed - user not found', ['email' => $request->email]);
+
                 return response()->json([
                     'message' => 'Invalid credentials'
                 ], 401);
             }
 
-            $user = User::where('email', $request->email)->firstOrFail();
+            // Check password
+            if (!Hash::check($request->password, $user->password)) {
+                \Log::warning('Login failed - invalid password', [
+                    'email' => $request->email,
+                    'user_id' => $user->id
+                ]);
+
+                return response()->json([
+                    'message' => 'Invalid credentials'
+                ], 401);
+            }
+
+            // Create token
             $token = $user->createToken('auth_token')->plainTextToken;
+
+            \Log::info('Login successful', [
+                'user_id' => $user->id,
+                'email' => $user->email
+            ]);
 
             return response()->json([
                 'user' => $user,
@@ -94,11 +130,15 @@ class AuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Login error: ' . $e->getMessage());
+            \Log::error('Login error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'email' => $request->email ?? 'unknown'
+            ]);
 
             return response()->json([
                 'message' => 'Login failed',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -287,20 +327,24 @@ class AuthController extends Controller
 
             // Get configuration
             $config = config("services.{$provider}");
-            if (empty($config['client_id']) || empty($config['client_secret'])) {
+
+            // Check if config exists and has required values
+            if (empty($config) || empty($config['client_id']) || empty($config['client_secret'])) {
                 \Log::error('Missing OAuth configuration', [
                     'provider' => $provider,
+                    'config_exists' => !empty($config),
                     'has_client_id' => !empty($config['client_id']),
                     'has_client_secret' => !empty($config['client_secret'])
                 ]);
+
                 return response()->json([
                     'message' => 'OAuth configuration missing',
-                    'error' => "Missing {$provider} OAuth credentials in configuration"
+                    'error' => "Missing {$provider} OAuth credentials in configuration. Please check your .env file for {$provider} credentials."
                 ], 500);
             }
 
-            // Build the OAuth URL with correct redirect URI
-            $redirectUri = $config['redirect'] ?? "http://localhost:3000/auth/{$provider}/callback";
+            // Use the redirect URI from config - this should match what's in Google Console
+            $redirectUri = $config['redirect'];
 
             \Log::info('Building OAuth URL', [
                 'provider' => $provider,
@@ -348,7 +392,6 @@ class AuthController extends Controller
 
     /**
      * Handle social authentication callback
-     * FIXED: Handle both URL parameter and request body
      */
     public function handleSocialCallback(Request $request, $provider = null)
     {
@@ -378,11 +421,11 @@ class AuthController extends Controller
                 return response()->json(['error' => 'Authorization code is required'], 400);
             }
 
-            // Set the redirect URI to match what was used for the authorization
+            // Use the same redirect URI as configured
             $config = config("services.{$provider}");
-            $redirectUri = $config['redirect'] ?? "http://localhost:3000/auth/{$provider}/callback";
+            $redirectUri = $config['redirect'];
 
-            \Log::info('Using redirect URI', ['redirect_uri' => $redirectUri]);
+            \Log::info('Using redirect URI for callback', ['redirect_uri' => $redirectUri]);
 
             // Get user from provider using the authorization code
             $socialUser = Socialite::driver($provider)
@@ -421,7 +464,7 @@ class AuthController extends Controller
             } else {
                 \Log::info('Creating new user');
 
-                // Create new user - only include fields that exist in the table
+                // Create new user
                 $userData = [
                     'name' => $socialUser->getName(),
                     'email' => $socialUser->getEmail(),
@@ -465,101 +508,6 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Social authentication failed',
                 'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Link a social account to an existing authenticated user.
-     */
-    public function linkSocialAccount(Request $request, $provider)
-    {
-        try {
-            $validated = $this->validateProvider($provider);
-            if (!$validated['success']) {
-                return response()->json(['error' => $validated['message']], 400);
-            }
-
-            $user = $request->user();
-
-            // Check if user already has a linked provider
-            if ($user->provider ?? false) {
-                return response()->json([
-                    'error' => 'Account already linked to ' . ucfirst($user->provider)
-                ], 400);
-            }
-
-            // Get authorization URL for linking
-            $redirectUri = config("services.{$provider}.redirect");
-            $url = Socialite::driver($provider)
-                ->stateless()
-                ->redirectUrl($redirectUri)
-                ->redirect()
-                ->getTargetUrl();
-
-            return response()->json([
-                'url' => $url,
-                'message' => 'Redirect to ' . ucfirst($provider) . ' to link account'
-            ]);
-
-        } catch (\Exception $e) {
-            \Log::error('Link account error: ' . $e->getMessage());
-
-            return response()->json([
-                'error' => 'Failed to initiate account linking: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Unlink social account from authenticated user.
-     */
-    public function unlinkSocialAccount(Request $request)
-    {
-        try {
-            $user = $request->user();
-
-            if (!($user->provider ?? false)) {
-                return response()->json([
-                    'error' => 'No social account linked'
-                ], 400);
-            }
-
-            // Check if user has a password set
-            if (!$user->password) {
-                return response()->json([
-                    'error' => 'Cannot unlink social account without a password set. Please set a password first.'
-                ], 400);
-            }
-
-            $provider = $user->provider;
-
-            // Remove social provider info - only if columns exist
-            $updateData = [];
-            if ($this->hasColumn('users', 'provider')) {
-                $updateData['provider'] = null;
-            }
-            if ($this->hasColumn('users', 'provider_id')) {
-                $updateData['provider_id'] = null;
-            }
-            if ($this->hasColumn('users', 'avatar')) {
-                $updateData['avatar'] = null;
-            }
-
-            if (!empty($updateData)) {
-                $user->update($updateData);
-            }
-
-            return response()->json([
-                'user' => $user->fresh(),
-                'message' => 'Successfully unlinked ' . ucfirst($provider) . ' account'
-            ]);
-
-        } catch (\Exception $e) {
-            \Log::error('Unlink account error: ' . $e->getMessage());
-
-            return response()->json([
-                'error' => 'Failed to unlink account: ' . $e->getMessage()
             ], 500);
         }
     }
